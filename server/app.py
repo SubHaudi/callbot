@@ -80,7 +80,15 @@ def _init_redis(config: ServerConfig) -> Any:
         port=config.redis_port,
         decode_responses=True,
         ssl=use_ssl,
+        ssl_cert_reqs=None if use_ssl else None,
+        socket_connect_timeout=5,
     )
+    # 연결 확인
+    try:
+        client.ping()
+        logger.info("Redis 연결 성공: %s:%s (ssl=%s)", config.redis_host, config.redis_port, use_ssl)
+    except Exception as e:
+        logger.error("Redis ping 실패: %s", e)
     return RedisSessionStore(redis_client=client)
 
 
