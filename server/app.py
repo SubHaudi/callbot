@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from health.router import configure_health_dependencies, router as health_router
 from server.config import ServerConfig
+from server.routes import router as api_router
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,9 @@ def create_app() -> FastAPI:
 
     # Health router
     app.include_router(health_router)
+
+    # API router
+    app.include_router(api_router)
 
     return app
 
