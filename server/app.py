@@ -24,6 +24,51 @@ def _init_pg(config: ServerConfig) -> Any:
     return PostgreSQLConnection(dsn=config.database_url)
 
 
+def _ensure_schema(pg_conn: Any) -> None:
+    """필요한 테이블이 없으면 생성한다."""
+    conn = pg_conn._acquire_conn()
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    caller_id TEXT,
+                    customer_id TEXT,
+                    start_time TIMESTAMPTZ,
+                    end_time TIMESTAMPTZ,
+                    end_reason TEXT,
+                    is_authenticated BOOLEAN DEFAULT FALSE,
+                    auth_method TEXT,
+                    business_turn_count INTEGER DEFAULT 0,
+                    total_turn_count INTEGER DEFAULT 0,
+                    tts_speed_factor FLOAT DEFAULT 1.0,
+                    csat_score INTEGER,
+                    escalation_reason TEXT,
+                    escalation_reasons JSONB DEFAULT '[]',
+                    auth_attempts JSONB DEFAULT '[]',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    expires_at TIMESTAMPTZ
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_turns (
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT REFERENCES conversation_sessions(session_id),
+                    turn_number INTEGER,
+                    user_text TEXT,
+                    bot_text TEXT,
+                    intent TEXT,
+                    action_type TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+        logger.info("DB 스키마 확인 완료")
+    finally:
+        pg_conn._release_conn(conn, close=False)
+
+
 def _init_redis(config: ServerConfig) -> Any:
     """Redis SessionStore 생성."""
     import redis as redis_lib
@@ -63,6 +108,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         config = ServerConfig.from_env()
         app.state.pg_connection = _init_pg(config)
+        _ensure_schema(app.state.pg_connection)
         app.state.redis_store = _init_redis(config)
         app.state.bedrock_service = _init_bedrock(config)
 
