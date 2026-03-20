@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from httpx import ASGITransport, AsyncClient
 
 
-E2E_DATABASE_URL = os.environ.get("E2E_DATABASE_URL", "postgresql://callbot:callbot@localhost:5432/callbot")
+E2E_DATABASE_URL = os.environ.get("E2E_DATABASE_URL", "postgresql://callbot:localdev@localhost:5432/callbot")
 E2E_REDIS_HOST = os.environ.get("E2E_REDIS_HOST", "localhost")
 E2E_REDIS_PORT = os.environ.get("E2E_REDIS_PORT", "6380")
 
