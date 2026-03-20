@@ -25,7 +25,7 @@ def _make_unsafe_filter_result():
 async def test_pipeline_processes_safe_input():
     """안전한 입력 → PROCESS_BUSINESS → LLM 응답."""
     from server.pipeline import TurnPipeline
-    from orchestrator.enums import ActionType
+    from callbot.orchestrator.enums import ActionType
 
     mock_pif = MagicMock()
     mock_pif.filter.return_value = _make_safe_filter_result()
@@ -62,7 +62,7 @@ async def test_pipeline_processes_safe_input():
 async def test_pipeline_handles_injection():
     """인젝션 탐지 → SYSTEM_CONTROL 응답."""
     from server.pipeline import TurnPipeline
-    from orchestrator.enums import ActionType
+    from callbot.orchestrator.enums import ActionType
 
     mock_pif = MagicMock()
     mock_pif.filter.return_value = _make_unsafe_filter_result()
@@ -98,7 +98,7 @@ async def test_pipeline_handles_injection():
 async def test_pipeline_creates_session_when_missing():
     """session_id 없으면 새 세션 생성."""
     from server.pipeline import TurnPipeline
-    from orchestrator.enums import ActionType
+    from callbot.orchestrator.enums import ActionType
 
     mock_pif = MagicMock()
     mock_pif.filter.return_value = _make_safe_filter_result()
@@ -133,7 +133,7 @@ async def test_pipeline_creates_session_when_missing():
 async def test_pipeline_handles_escalation():
     """상담원 전환 조건 → ESCALATE 응답."""
     from server.pipeline import TurnPipeline
-    from orchestrator.enums import ActionType
+    from callbot.orchestrator.enums import ActionType
 
     mock_pif = MagicMock()
     mock_pif.filter.return_value = _make_unsafe_filter_result()
