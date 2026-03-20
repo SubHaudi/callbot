@@ -157,7 +157,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.exception("PG 연결 종료 실패")
     if app.state.redis_store is not None:
         try:
-            app.state.redis_store.close()
+            if hasattr(app.state.redis_store, '_redis'):
+                app.state.redis_store._redis.close()
         except Exception:
             logger.exception("Redis 연결 종료 실패")
 
