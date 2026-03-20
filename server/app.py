@@ -15,6 +15,7 @@ from server.routes import router as api_router
 from callbot.session.exceptions import SessionNotFoundError
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 def _init_pg(config: ServerConfig) -> Any:
@@ -24,9 +25,11 @@ def _init_pg(config: ServerConfig) -> Any:
 
 
 def _init_redis(config: ServerConfig) -> Any:
-    """Redis 클라이언트 생성."""
-    import redis
-    return redis.Redis(host=config.redis_host, port=config.redis_port, decode_responses=True)
+    """Redis SessionStore 생성."""
+    import redis as redis_lib
+    from callbot.session.redis_session_store import RedisSessionStore
+    client = redis_lib.Redis(host=config.redis_host, port=config.redis_port, decode_responses=True)
+    return RedisSessionStore(redis_client=client)
 
 
 def _init_bedrock(config: ServerConfig) -> Any:
@@ -85,7 +88,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             session_manager=session_manager,
             llm_engine=app.state.bedrock_service,
         )
-    except Exception:
+    except Exception as exc:
+        import traceback
+        print(f"서버 초기화 실패: {exc}", flush=True)
+        traceback.print_exc()
         logger.exception("서버 초기화 실패 — graceful degradation 모드")
 
     yield
