@@ -5,12 +5,14 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from health.router import configure_health_dependencies, router as health_router
 from server.config import ServerConfig
 from server.routes import router as api_router
+from session.exceptions import SessionNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +102,26 @@ def create_app() -> FastAPI:
 
     # API router
     app.include_router(api_router)
+
+    # Error handlers
+    @app.exception_handler(SessionNotFoundError)
+    async def _session_not_found(request: Request, exc: SessionNotFoundError):
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(ValueError)
+    async def _value_error(request: Request, exc: ValueError):
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.middleware("http")
+    async def _catch_all_errors(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            logger.exception("Unhandled error")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"},
+            )
 
     return app
 
