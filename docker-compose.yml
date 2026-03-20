@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  callbot-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://callbot:callbot@postgres:5432/callbot
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - BEDROCK_MODEL_ID=anthropic.claude-3-5-haiku-20241022-v1:0
+      - BEDROCK_REGION=ap-northeast-2
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=callbot
+      - POSTGRES_USER=callbot
+      - POSTGRES_PASSWORD=callbot
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
