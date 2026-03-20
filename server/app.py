@@ -9,17 +9,17 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from health.router import configure_health_dependencies, router as health_router
+from callbot.health.router import configure_health_dependencies, router as health_router
 from server.config import ServerConfig
 from server.routes import router as api_router
-from session.exceptions import SessionNotFoundError
+from callbot.session.exceptions import SessionNotFoundError
 
 logger = logging.getLogger(__name__)
 
 
 def _init_pg(config: ServerConfig) -> Any:
     """PostgreSQL 커넥션 풀 생성."""
-    from session.pg_connection import PostgreSQLConnection
+    from callbot.session.pg_connection import PostgreSQLConnection
     return PostgreSQLConnection(dsn=config.database_url)
 
 
@@ -31,7 +31,7 @@ def _init_redis(config: ServerConfig) -> Any:
 
 def _init_bedrock(config: ServerConfig) -> Any:
     """Bedrock 서비스 초기화."""
-    from llm_engine.bedrock_service import BedrockConfig, BedrockService
+    from callbot.llm_engine.bedrock_service import BedrockConfig, BedrockService
     bedrock_config = BedrockConfig(
         model_id=config.bedrock_model_id,
         region=config.bedrock_region,

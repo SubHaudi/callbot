@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from session.exceptions import SessionNotFoundError
+from callbot.session.exceptions import SessionNotFoundError
 
 
 def _make_app_with_error(error):

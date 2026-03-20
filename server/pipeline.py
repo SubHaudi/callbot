@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from orchestrator.enums import ActionType
+from callbot.orchestrator.enums import ActionType
 
 logger = logging.getLogger(__name__)
 
