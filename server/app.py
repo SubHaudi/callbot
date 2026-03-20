@@ -28,7 +28,14 @@ def _init_redis(config: ServerConfig) -> Any:
     """Redis SessionStore 생성."""
     import redis as redis_lib
     from callbot.session.redis_session_store import RedisSessionStore
-    client = redis_lib.Redis(host=config.redis_host, port=config.redis_port, decode_responses=True)
+    # ElastiCache Serverless requires TLS
+    use_ssl = config.environment != "local"
+    client = redis_lib.Redis(
+        host=config.redis_host,
+        port=config.redis_port,
+        decode_responses=True,
+        ssl=use_ssl,
+    )
     return RedisSessionStore(redis_client=client)
 
 
