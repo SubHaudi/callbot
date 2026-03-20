@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+WORKDIR /opt/callbot
 
 # uv 설치
 RUN pip install --no-cache-dir uv
@@ -11,6 +11,9 @@ RUN uv sync --no-dev --frozen
 
 # 소스 복사
 COPY . .
+
+# /opt/ 를 PYTHONPATH에 추가 → import callbot.xxx 가능
+ENV PYTHONPATH=/opt
 
 EXPOSE 8000
 
