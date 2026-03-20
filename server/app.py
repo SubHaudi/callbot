@@ -31,7 +31,7 @@ def _init_redis(config: ServerConfig) -> Any:
 
 def _init_bedrock(config: ServerConfig) -> Any:
     """Bedrock 서비스 초기화."""
-    from callbot.llm_engine.bedrock_service import BedrockConfig, BedrockService
+    from callbot.llm_engine.bedrock_service import BedrockConfig, BedrockClaudeService
     bedrock_config = BedrockConfig(
         model_id=config.bedrock_model_id,
         region=config.bedrock_region,
@@ -39,7 +39,7 @@ def _init_bedrock(config: ServerConfig) -> Any:
         max_tokens=16384,
         max_retries=3,
     )
-    return BedrockService(bedrock_config)
+    return BedrockClaudeService(bedrock_config)
 
 
 @asynccontextmanager
@@ -62,6 +62,29 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         app.state.healthy = True
         logger.info("서버 초기화 완료: environment=%s", config.environment)
+
+        # Pipeline 조립
+        from callbot.nlu.prompt_injection_filter import PromptInjectionFilter
+        from callbot.orchestrator.conversation_orchestrator import ConversationOrchestrator
+        from callbot.session.session_manager import SessionManager
+        from callbot.session.session_store import InMemorySessionStore
+        from callbot.session.repository import CallbotDBRepository
+        from server.pipeline import TurnPipeline
+
+        pif = PromptInjectionFilter()
+        repository = CallbotDBRepository(db=app.state.pg_connection)
+        session_store = InMemorySessionStore()
+        session_manager = SessionManager(
+            repository=repository,
+            session_store=session_store,
+        )
+        orchestrator = ConversationOrchestrator()
+        app.state.pipeline = TurnPipeline(
+            pif=pif,
+            orchestrator=orchestrator,
+            session_manager=session_manager,
+            llm_engine=app.state.bedrock_service,
+        )
     except Exception:
         logger.exception("서버 초기화 실패 — graceful degradation 모드")
 

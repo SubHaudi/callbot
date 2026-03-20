@@ -59,7 +59,7 @@ class TurnPipeline:
 
         # PIF
         filter_result = await loop.run_in_executor(
-            _executor, self._pif.filter, text
+            _executor, self._pif.filter, text, session.session_id
         )
 
         # Orchestrator
