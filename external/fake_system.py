@@ -5,9 +5,9 @@ CALLBOT_EXTERNAL_BACKEND=fake 시 팩토리에서 사용된다.
 """
 from __future__ import annotations
 
-from callbot.business.enums import BillingOperation, CustomerDBOperation
+from callbot.business.enums import APIErrorType, BillingOperation, CustomerDBOperation
 from callbot.business.external_system import ExternalSystemBase
-from callbot.business.models import APIResult
+from callbot.business.models import APIError, APIResult
 
 
 class FakeExternalSystem(ExternalSystemBase):
@@ -16,6 +16,11 @@ class FakeExternalSystem(ExternalSystemBase):
     def __init__(self, auth_verified: bool = True) -> None:
         self._auth_verified = auth_verified
         self._current_plan = {"name": "5G 스탠다드", "monthly_fee": 55000, "penalty": 0}
+        self._addons = [
+            {"addon_id": "ADD-001", "name": "데이터 쉐어링", "monthly_fee": 5500, "cancelable": True},
+            {"addon_id": "ADD-002", "name": "안심 데이터", "monthly_fee": 3300, "cancelable": True},
+            {"addon_id": "ADD-003", "name": "약정 보험", "monthly_fee": 2200, "cancelable": False},
+        ]
 
     def call_customer_db(
         self,
@@ -105,6 +110,55 @@ class FakeExternalSystem(ExternalSystemBase):
             return APIResult(
                 is_success=True,
                 data={"result": "변경완료", "new_plan": new_name},
+                error=None,
+                response_time_ms=30,
+                retry_count=0,
+            )
+        if operation == BillingOperation.QUERY_DATA_USAGE:
+            return APIResult(
+                is_success=True,
+                data={
+                    "total_gb": 15.0,
+                    "used_gb": 9.2,
+                    "remaining_gb": 5.8,
+                    "reset_date": "2026-04-01",
+                    "plan_name": self._current_plan["name"],
+                },
+                error=None,
+                response_time_ms=20,
+                retry_count=0,
+            )
+        if operation == BillingOperation.CANCEL_ADDON:
+            addon_id = params.get("addon_id", "")
+            target = next((a for a in self._addons if a["addon_id"] == addon_id), None)
+            if target is None:
+                return APIResult(
+                    is_success=False,
+                    data={"reason": "존재하지 않는 부가서비스입니다."},
+                    error=APIError(
+                        error_type=APIErrorType.CLIENT_ERROR,
+                        message="존재하지 않는 부가서비스입니다.",
+                        is_retryable=False,
+                    ),
+                    response_time_ms=20,
+                    retry_count=0,
+                )
+            if not target["cancelable"]:
+                return APIResult(
+                    is_success=False,
+                    data={"reason": f"'{target['name']}'은(는) 약정 기간 내 해지 불가합니다."},
+                    error=APIError(
+                        error_type=APIErrorType.CLIENT_ERROR,
+                        message=f"'{target['name']}'은(는) 약정 기간 내 해지 불가합니다.",
+                        is_retryable=False,
+                    ),
+                    response_time_ms=20,
+                    retry_count=0,
+                )
+            self._addons = [a for a in self._addons if a["addon_id"] != addon_id]
+            return APIResult(
+                is_success=True,
+                data={"result": "해지완료", "addon_name": target["name"]},
                 error=None,
                 response_time_ms=30,
                 retry_count=0,

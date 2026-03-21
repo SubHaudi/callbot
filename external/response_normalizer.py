@@ -83,12 +83,35 @@ def _normalize_rollback(data: dict) -> dict:
     }
 
 
+def _normalize_data_usage(data: dict) -> dict:
+    """데이터_잔여량_조회 → {"total_gb": float, "used_gb": float, "remaining_gb": float, ...}"""
+    return {
+        "total_gb": data.get("total_gb", 0.0),
+        "used_gb": data.get("used_gb", 0.0),
+        "remaining_gb": data.get("remaining_gb", 0.0),
+        "reset_date": data.get("reset_date", ""),
+        "plan_name": data.get("plan_name", ""),
+    }
+
+
+def _normalize_cancel_addon(data: dict) -> dict:
+    """부가서비스_해지 → {"result": str, "addon_name": str} or {"reason": str}"""
+    if "reason" in data:
+        return {"reason": data["reason"]}
+    return {
+        "result": data.get("result", ""),
+        "addon_name": data.get("addon_name", ""),
+    }
+
+
 _HANDLERS: dict[tuple[str, str], callable] = {
     ("billing", "요금_조회"): _normalize_charges,
     ("billing", "납부_확인"): _normalize_payments,
     ("billing", "요금제_목록_조회"): _normalize_plans,
     ("billing", "요금제_변경"): _normalize_change_plan,
     ("billing", "요금제_변경_롤백"): _normalize_rollback,
+    ("billing", "데이터_잔여량_조회"): _normalize_data_usage,
+    ("billing", "부가서비스_해지"): _normalize_cancel_addon,
     ("customer_db", "고객_식별"): _normalize_customer_info,
     ("customer_db", "인증_검증"): _normalize_verify_auth,
     ("customer_db", "고객_정보_조회"): _normalize_customer_info,

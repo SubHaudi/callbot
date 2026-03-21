@@ -20,6 +20,8 @@ _MAPPING: dict[tuple[str, str], EndpointInfo] = {
     ("billing", "요금제_목록_조회"): EndpointInfo("GET", "/api/v1/billing/plans"),
     ("billing", "요금제_변경"): EndpointInfo("POST", "/api/v1/billing/plans/change"),
     ("billing", "요금제_변경_롤백"): EndpointInfo("POST", "/api/v1/billing/plans/rollback"),
+    ("billing", "데이터_잔여량_조회"): EndpointInfo("GET", "/api/v1/billing/data-usage"),
+    ("billing", "부가서비스_해지"): EndpointInfo("POST", "/api/v1/billing/addons/cancel"),
     # customer_db
     ("customer_db", "고객_식별"): EndpointInfo("GET", "/api/v1/customers/identify"),
     ("customer_db", "인증_검증"): EndpointInfo("POST", "/api/v1/customers/verify"),
