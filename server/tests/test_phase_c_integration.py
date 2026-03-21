@@ -139,3 +139,45 @@ async def test_session_limit_blocks_processing():
 
     result = await pipeline.process(None, "010", "요금 조회해줘")
     assert result.action_type == "SESSION_END"
+
+
+@pytest.mark.asyncio
+async def test_pii_multiple_patterns_masked():
+    """복합 PII (전화+주민) E2E 마스킹."""
+    session = _make_session()
+    pipeline = _make_pipeline(session)
+
+    result = await pipeline.process(
+        None, "010", "제 번호 010-9876-5432, 주민 880101-1234567 요금 조회"
+    )
+
+    llm_call = pipeline._llm_engine.generate.call_args
+    if llm_call:
+        user_text = llm_call[0][1]
+        assert "010-9876-5432" not in user_text
+        assert "880101-1234567" not in user_text
+
+
+@pytest.mark.asyncio
+async def test_plan_change_name_select_e2e():
+    """요금제 이름으로 선택 E2E."""
+    session = _make_session()
+    pipeline = _make_pipeline(session)
+
+    r1 = await pipeline.process(None, "010", "요금제 변경하고 싶어요")
+    assert session.pending_intent == "PLAN_CHANGE_SELECT"
+
+    # 이름으로 선택
+    r2 = await pipeline.process(None, "010", "5G 프리미엄으로 변경해줘")
+    assert "프리미엄" in r2.response_text
+
+
+@pytest.mark.asyncio
+async def test_addon_cancel_non_cancelable_e2e():
+    """약정 부가서비스 해지 실패 E2E."""
+    session = _make_session()
+    pipeline = _make_pipeline(session)
+
+    await pipeline.process(None, "010", "부가서비스 해지해줘")
+    r2 = await pipeline.process(None, "010", "약정 보험 해지")
+    assert "실패" in r2.response_text or "약정" in r2.response_text
