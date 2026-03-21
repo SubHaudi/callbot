@@ -32,12 +32,16 @@ class ServiceAuthenticator:
         jwt_ttl_seconds: int = 3600,
         private_key_secret_name: str = "callbot/jwt-private-key",
         public_key_secret_name: str = "callbot/jwt-public-key",
+        issuer: str = "callbot",
+        audience: str = "callbot-services",
     ) -> None:
         self._secrets_manager = secrets_manager
         self._token_store = token_store
         self._jwt_ttl_seconds = jwt_ttl_seconds
         self._private_key_secret_name = private_key_secret_name
         self._public_key_secret_name = public_key_secret_name
+        self._issuer = issuer
+        self._audience = audience
 
     @classmethod
     def from_env(
@@ -83,6 +87,8 @@ class ServiceAuthenticator:
             "iat": now,
             "exp": now + self._jwt_ttl_seconds,
             "jti": str(uuid.uuid4()),
+            "iss": self._issuer,
+            "aud": self._audience,
         }
         return jwt.encode(payload, private_key, algorithm="RS256")
 
@@ -108,7 +114,9 @@ class ServiceAuthenticator:
                 token,
                 public_key,
                 algorithms=["RS256"],
-                options={"require": ["sub", "iat", "exp", "jti"]},
+                audience=self._audience,
+                issuer=self._issuer,
+                options={"require": ["sub", "iat", "exp", "jti", "iss", "aud"]},
             )
         except jwt.ExpiredSignatureError as exc:
             raise TokenExpiredError("Token has expired") from exc
@@ -117,6 +125,8 @@ class ServiceAuthenticator:
             jwt.DecodeError,
             jwt.MissingRequiredClaimError,
             jwt.InvalidAlgorithmError,
+            jwt.InvalidAudienceError,
+            jwt.InvalidIssuerError,
         ) as exc:
             raise InvalidTokenError(f"Invalid token: {exc}") from exc
 
@@ -144,6 +154,8 @@ class ServiceAuthenticator:
                 token,
                 public_key,
                 algorithms=["RS256"],
+                audience=self._audience,
+                issuer=self._issuer,
                 options={"verify_exp": False},
             )
         except (jwt.InvalidSignatureError, jwt.DecodeError) as exc:
