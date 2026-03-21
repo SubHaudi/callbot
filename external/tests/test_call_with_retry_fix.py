@@ -10,7 +10,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from callbot.business.api_wrapper import ExternalAPIWrapper, ExternalSystemBase
+from callbot.business.api_wrapper import ExternalAPIWrapper, APIWrapperSystemBase
 from callbot.business.enums import APIErrorType
 from callbot.business.models import APIResult
 
@@ -20,8 +20,8 @@ from callbot.business.models import APIResult
 # ---------------------------------------------------------------------------
 
 def _make_wrapper_with_mock(side_effects):
-    """side_effects 리스트로 ExternalSystemBase mock을 구성한 wrapper 반환."""
-    sys_mock = MagicMock(spec=ExternalSystemBase)
+    """side_effects 리스트로 APIWrapperSystemBase mock을 구성한 wrapper 반환."""
+    sys_mock = MagicMock(spec=APIWrapperSystemBase)
     sys_mock.call.side_effect = side_effects
     wrapper = ExternalAPIWrapper(external_system=sys_mock)
     return wrapper, sys_mock

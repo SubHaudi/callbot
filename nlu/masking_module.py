@@ -106,6 +106,9 @@ class MaskingModule:
             value = getattr(customer_info, attr)
             if value is None or value == "":
                 continue
+            # M-02: list/dict 타입 방어 — str만 마스킹 대상
+            if not isinstance(value, str):
+                continue
             # 원본 텍스트에서 모든 비겹침 위치 탐색
             search_start = 0
             while True:

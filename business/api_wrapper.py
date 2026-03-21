@@ -26,7 +26,7 @@ _MAX_ROLLBACK_RETRIES = 3
 # 외부 시스템 추상 인터페이스
 # ---------------------------------------------------------------------------
 
-class ExternalSystemBase(ABC):
+class APIWrapperSystemBase(ABC):
     """외부 시스템 호출 추상 인터페이스 (테스트 mock 대상)."""
 
     @abstractmethod
@@ -132,7 +132,7 @@ class ExternalAPIWrapper:
 
     def __init__(
         self,
-        external_system: ExternalSystemBase,
+        external_system: APIWrapperSystemBase,
         alert_service: Optional[AlertServiceBase] = None,
     ) -> None:
         self._sys = external_system
