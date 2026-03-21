@@ -162,3 +162,23 @@ def test_semaphore_restored_after_db_error(session_id: str):
         pg.fetchone("SELECT_SESSION", (session_id,))
 
     assert pg._semaphore._value == before
+
+
+# ---------------------------------------------------------------------------
+# TASK-S05: SQL injection 방지 — 컬럼 화이트리스트
+# ---------------------------------------------------------------------------
+
+
+def test_update_session_rejects_disallowed_column():
+    """허용되지 않은 컬럼 → ValueError."""
+    from callbot.session.pg_connection import _ALLOWED_SESSION_COLUMNS
+
+    # 화이트리스트 외 컬럼 확인
+    assert "session_id" not in _ALLOWED_SESSION_COLUMNS
+    assert "end_time" in _ALLOWED_SESSION_COLUMNS
+
+
+def test_allowed_session_columns_is_frozenset():
+    """화이트리스트가 frozenset으로 불변."""
+    from callbot.session.pg_connection import _ALLOWED_SESSION_COLUMNS
+    assert isinstance(_ALLOWED_SESSION_COLUMNS, frozenset)
