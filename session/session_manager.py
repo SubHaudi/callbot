@@ -26,9 +26,11 @@ class SessionManager:
     WARNING_TURNS = 18
     WARNING_MINUTES = 13.0
 
-    def __init__(self, repository: CallbotDBRepository, session_store: SessionStoreBase) -> None:
+    def __init__(self, repository: CallbotDBRepository, session_store: SessionStoreBase,
+                 metrics_collector=None) -> None:
         self._repository = repository
         self._store = session_store
+        self._metrics = metrics_collector
 
     def _get_context(self, session_id: str) -> SessionContext:
         """SessionStoreBase.load()로 세션 조회. 없으면 SessionNotFoundError."""
@@ -36,6 +38,10 @@ class SessionManager:
         if ctx is None:
             raise SessionNotFoundError(session_id)
         return ctx
+
+    def get_session(self, session_id: str) -> Optional[SessionContext]:
+        """Public 세션 조회. 없으면 None 반환 (예외 없음)."""
+        return self._store.load(session_id)
 
     def _save_context(self, context: SessionContext) -> None:
         """상태 변경 후 저장소에 반영."""
@@ -100,6 +106,11 @@ class SessionManager:
             expires_at=now.replace(year=now.year + 1),
         )
         self._repository.insert_session(db_session)
+
+        # 세션 메트릭
+        if self._metrics is not None:
+            self._metrics.increment("session_created_total")
+            self._metrics.set_gauge("active_sessions", self._store.count())
 
         return context
 
@@ -180,6 +191,11 @@ class SessionManager:
 
         self._repository.update_session(session_id, {"end_time": datetime.now(), "end_reason": reason})
         self._store.delete(session_id)
+
+        # 세션 종료 메트릭
+        if self._metrics is not None:
+            self._metrics.increment("session_ended_total")
+            self._metrics.set_gauge("active_sessions", self._store.count())
 
     def check_limits(self, session_id: str) -> SessionLimitStatus:
         """턴/시간 제한 확인.
