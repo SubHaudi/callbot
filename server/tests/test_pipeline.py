@@ -506,3 +506,61 @@ async def test_addon_cancel_non_cancelable():
     )
     result = await pipeline.process(None, "010", "약정 보험 해지")
     assert "실패" in result.response_text or "약정" in result.response_text
+
+
+# ---------------------------------------------------------------------------
+# TASK-010: PII regex 마스킹
+# ---------------------------------------------------------------------------
+
+def test_mask_pii_regex_phone_with_dash():
+    from server.pipeline import _mask_pii_regex
+    assert _mask_pii_regex("번호는 010-1234-5678입니다") == "번호는 [전화번호]입니다"
+
+def test_mask_pii_regex_phone_no_dash():
+    from server.pipeline import _mask_pii_regex
+    assert _mask_pii_regex("번호는 01012345678입니다") == "번호는 [전화번호]입니다"
+
+def test_mask_pii_regex_ssn():
+    from server.pipeline import _mask_pii_regex
+    assert _mask_pii_regex("주민번호 990101-1234567") == "주민번호 [주민번호]"
+
+def test_mask_pii_regex_card():
+    from server.pipeline import _mask_pii_regex
+    assert _mask_pii_regex("카드 1234-5678-1234-5678") == "카드 [카드번호]"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_regex_masking_applied():
+    """C-06: 정규식 PII 마스킹이 PIF 전에 적용된다."""
+    from server.pipeline import TurnPipeline
+    from callbot.orchestrator.enums import ActionType
+
+    mock_pif = MagicMock()
+    mock_pif.filter.return_value = _make_safe_filter_result()
+
+    mock_orch = MagicMock()
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS,
+        context={"intent": None},
+    )
+
+    mock_session_mgr = MagicMock()
+    mock_session_ctx = MagicMock()
+    mock_session_ctx.session_id = "sess-regex"
+    mock_session_ctx.pending_intent = None
+    mock_session_mgr.create_session.return_value = mock_session_ctx
+
+    mock_llm = MagicMock()
+    mock_llm.generate.return_value = "응답"
+
+    pipeline = TurnPipeline(
+        pif=mock_pif, orchestrator=mock_orch,
+        session_manager=mock_session_mgr, llm_engine=mock_llm,
+    )
+
+    await pipeline.process(None, "010", "제 번호는 010-1234-5678이에요")
+
+    # PIF가 마스킹된 텍스트로 호출됨
+    pif_call_text = mock_pif.filter.call_args[0][0]
+    assert "010-1234-5678" not in pif_call_text
+    assert "[전화번호]" in pif_call_text
