@@ -57,34 +57,43 @@ class PIIEncryptor:
             )
         return key
 
-    def encrypt(self, plaintext: str) -> bytes:
+    def encrypt(self, plaintext: str, session_id: str | None = None) -> bytes:
         """AES-256-GCM 암호화. 96비트 난수 IV 생성.
+
+        Args:
+            plaintext: 암호화할 평문.
+            session_id: AAD(Additional Authenticated Data)로 사용할 세션 ID.
+                        None이면 AAD 없이 암호화 (하위 호환).
 
         반환값: iv(12B) + tag(16B) + ciphertext.
         """
         key = self._get_key()
         iv = os.urandom(_IV_LEN)
         aesgcm = AESGCM(key)
-        # AESGCM.encrypt returns ciphertext + tag(16B)
-        encrypted = aesgcm.encrypt(iv, plaintext.encode("utf-8"), None)
+        aad = session_id.encode("utf-8") if session_id else None
+        encrypted = aesgcm.encrypt(iv, plaintext.encode("utf-8"), aad)
         ciphertext_part = encrypted[:-_TAG_LEN]
         tag = encrypted[-_TAG_LEN:]
         return iv + tag + ciphertext_part
 
-    def decrypt(self, ciphertext: bytes) -> str:
+    def decrypt(self, ciphertext: bytes, session_id: str | None = None) -> str:
         """AES-256-GCM 복호화. 인증 태그 검증 실패 시 DecryptionError.
 
+        Args:
+            ciphertext: 암호화된 바이너리 (iv + tag + ct).
+            session_id: 암호화 시 사용한 AAD. encrypt와 동일해야 복호화 성공.
+
         Raises:
-            DecryptionError: 인증 태그 검증 실패 시.
+            DecryptionError: 인증 태그 검증 실패 시 (AAD 불일치 포함).
         """
         key = self._get_key()
         iv = ciphertext[:_IV_LEN]
         tag = ciphertext[_IV_LEN : _IV_LEN + _TAG_LEN]
         ct = ciphertext[_IV_LEN + _TAG_LEN :]
-        # AESGCM.decrypt expects ciphertext + tag
+        aad = session_id.encode("utf-8") if session_id else None
         aesgcm = AESGCM(key)
         try:
-            plaintext_bytes = aesgcm.decrypt(iv, ct + tag, None)
+            plaintext_bytes = aesgcm.decrypt(iv, ct + tag, aad)
         except InvalidTag as exc:
             raise DecryptionError("Authentication tag verification failed") from exc
         return plaintext_bytes.decode("utf-8")
