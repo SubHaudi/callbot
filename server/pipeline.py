@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
@@ -74,6 +75,7 @@ class TurnPipeline:
         external_system: Optional[ExternalSystemProtocol] = None,
         pii_masker: Optional[Any] = None,
         prompt_loader: Optional[Any] = None,
+        metrics_collector: Optional[Any] = None,
     ) -> None:
         self._pif = pif
         self._orchestrator = orchestrator
@@ -82,6 +84,7 @@ class TurnPipeline:
         self._external_system = external_system
         self._pii_masker = pii_masker
         self._prompt_loader = prompt_loader
+        self._metrics = metrics_collector
 
     async def process(
         self,
@@ -91,6 +94,7 @@ class TurnPipeline:
     ) -> TurnResult:
         """턴을 처리하고 결과를 반환한다."""
         loop = asyncio.get_event_loop()
+        t_start = time.perf_counter()
 
         # 세션 조회 또는 생성
         if session_id is None:
@@ -99,10 +103,14 @@ class TurnPipeline:
             )
         else:
             session = await loop.run_in_executor(
-                _executor, self._session_manager._store.load, session_id
+                _executor, self._session_manager.get_session, session_id
             )
+            if session is None:
+                from callbot.session.exceptions import SessionNotFoundError
+                raise SessionNotFoundError(session_id)
 
         # PII 마스킹 (M-37 + C-06: DI masker + regex fallback)
+        t_pii = time.perf_counter()
         masked_text = text
         if self._pii_masker is not None:
             mask_result = await loop.run_in_executor(
@@ -111,32 +119,67 @@ class TurnPipeline:
             masked_text = mask_result if isinstance(mask_result, str) else mask_result.masked_text
         # 정규식 PII 패턴 (DI masker와 무관하게 항상 적용)
         masked_text = _mask_pii_regex(masked_text)
+        self._record_timing("pii_masking_duration_ms", t_pii)
+        # PII 탐지 메트릭
+        self._record_pii_detections(text, masked_text)
 
         # PIF (마스킹된 텍스트 사용)
+        t_pif = time.perf_counter()
         filter_result = await loop.run_in_executor(
             _executor, self._pif.filter, masked_text, session.session_id
         )
+        self._record_timing("pif_duration_ms", t_pif)
+        # PIF 차단 메트릭
+        self._record_injection_detections(filter_result)
 
         # Orchestrator — intent 분류 포함
+        t_nlu = time.perf_counter()
         action = await loop.run_in_executor(
             _executor, self._orchestrator.process_turn, session, filter_result
         )
+        nlu_elapsed = self._elapsed_ms(t_nlu)
+        intent_name = self._extract_intent_name(action)
+        self._observe_metric("nlu_duration_ms", nlu_elapsed, {"intent": intent_name})
+
+        # 비즈니스 메트릭: intent 요청 카운터
+        self._increment_metric("intent_requests_total", dimensions={"intent": intent_name})
 
         # 분기
-        if action.action_type == ActionType.PROCESS_BUSINESS:
-            response_text = await self._handle_business(
-                loop, session, action, masked_text
-            )
-        elif action.action_type == ActionType.SESSION_END:
-            response_text = "이용해 주셔서 감사합니다. 좋은 하루 보내세요."
-        elif action.action_type == ActionType.SYSTEM_CONTROL:
-            response_text = action.context.get("message", "다시 한번 말씀해주시겠어요?")
-        elif action.action_type == ActionType.ESCALATE:
-            response_text = "상담원에게 전환합니다. 잠시만 기다려주세요."
-        elif action.action_type == ActionType.AUTH_REQUIRED:
-            response_text = "본인 확인이 필요합니다. 생년월일 6자리를 말씀해주세요."
-        else:
-            response_text = "처리할 수 없는 요청입니다."
+        t_llm = time.perf_counter()
+        try:
+            if action.action_type == ActionType.PROCESS_BUSINESS:
+                response_text = await self._handle_business(
+                    loop, session, action, masked_text
+                )
+            elif action.action_type == ActionType.SESSION_END:
+                response_text = "이용해 주셔서 감사합니다. 좋은 하루 보내세요."
+            elif action.action_type == ActionType.SYSTEM_CONTROL:
+                response_text = action.context.get("message", "다시 한번 말씀해주시겠어요?")
+            elif action.action_type == ActionType.ESCALATE:
+                response_text = "상담원에게 전환합니다. 잠시만 기다려주세요."
+            elif action.action_type == ActionType.AUTH_REQUIRED:
+                response_text = "본인 확인이 필요합니다. 생년월일 6자리를 말씀해주세요."
+            else:
+                response_text = "처리할 수 없는 요청입니다."
+            self._record_timing("llm_step_duration_ms", t_llm)
+
+            # 비즈니스 메트릭: 성공 카운터
+            self._increment_metric("intent_success_total", dimensions={
+                "intent": intent_name, "action_type": action.action_type.name
+            })
+        except Exception as e:
+            # 비즈니스 메트릭: 실패 카운터
+            self._increment_metric("intent_failure_total", dimensions={
+                "intent": intent_name, "error_type": "exception"
+            })
+            raise
+
+        # total
+        self._observe_metric("total_duration_ms", self._elapsed_ms(t_start), {"intent": intent_name})
+
+        # flush metrics to backend
+        if self._metrics is not None:
+            self._metrics.flush()
 
         return TurnResult(
             session_id=session.session_id,
@@ -414,9 +457,37 @@ class TurnPipeline:
             else:
                 context_text = system_prompt
 
-        return await loop.run_in_executor(
-            _executor, self._llm_engine.generate, context_text, masked_text
-        )
+        model_name = getattr(self._llm_engine, "model_name", "unknown")
+        t_llm_call = time.perf_counter()
+        try:
+            result = await loop.run_in_executor(
+                _executor, self._llm_engine.generate, context_text, masked_text
+            )
+            llm_elapsed = self._elapsed_ms(t_llm_call)
+
+            # LLM 메트릭
+            self._increment_metric("llm_requests_total", dimensions={"model": model_name})
+            self._observe_metric("llm_duration_ms", llm_elapsed, {"model": model_name})
+
+            # 토큰 추적
+            input_tokens = getattr(self._llm_engine, "last_input_tokens", 0)
+            output_tokens = getattr(self._llm_engine, "last_output_tokens", 0)
+            if input_tokens:
+                self._increment_metric("llm_input_tokens", input_tokens, {"model": model_name})
+            if output_tokens:
+                self._increment_metric("llm_output_tokens", output_tokens, {"model": model_name})
+
+            # 비용 추정
+            cost = self._estimate_llm_cost(model_name, input_tokens, output_tokens)
+            if cost > 0:
+                self._increment_metric("llm_estimated_cost_usd", cost, {"model": model_name})
+
+            return result
+        except Exception as e:
+            self._increment_metric("llm_errors_total", dimensions={
+                "model": model_name, "error_type": "exception"
+            })
+            raise
 
     async def _dispatch_business_api(
         self,
@@ -455,3 +526,65 @@ class TurnPipeline:
         except Exception as e:
             logger.error("Business API call failed: %s", e)
             return {"error": str(e)}
+
+    # --- Metrics helpers ---
+
+    @staticmethod
+    def _elapsed_ms(start: float) -> float:
+        return (time.perf_counter() - start) * 1000
+
+    def _record_timing(self, name: str, start: float, dimensions=None) -> None:
+        if self._metrics is not None:
+            self._metrics.observe(name, self._elapsed_ms(start), dimensions)
+
+    def _observe_metric(self, name: str, value: float, dimensions=None) -> None:
+        if self._metrics is not None:
+            self._metrics.observe(name, value, dimensions)
+
+    def _increment_metric(self, name: str, value: float = 1, dimensions=None) -> None:
+        if self._metrics is not None:
+            self._metrics.increment(name, value, dimensions)
+
+    def _record_pii_detections(self, original: str, masked: str) -> None:
+        """Count PII detections by type."""
+        if self._metrics is None:
+            return
+        _PII_TYPE_MAP = {
+            "[카드번호]": "card",
+            "[주민번호]": "ssn",
+            "[전화번호]": "phone",
+        }
+        for marker, pii_type in _PII_TYPE_MAP.items():
+            count = masked.count(marker) - original.count(marker)
+            if count > 0:
+                self._increment_metric("pii_detected_total", count, {"pii_type": pii_type})
+
+    def _record_injection_detections(self, filter_result) -> None:
+        """Count injection blocks by pattern name."""
+        if self._metrics is None or filter_result.is_safe:
+            return
+        for pattern_name in filter_result.detected_patterns:
+            self._increment_metric("injection_blocked_total", 1, {"pattern_name": pattern_name})
+
+    # LLM 모델별 단가 (USD per token)
+    _LLM_COST_PER_TOKEN = {
+        "sonnet-4": {"input": 0.003 / 1000, "output": 0.015 / 1000},
+        "haiku-3": {"input": 0.00025 / 1000, "output": 0.00125 / 1000},
+    }
+
+    @classmethod
+    def _estimate_llm_cost(cls, model: str, input_tokens: int, output_tokens: int) -> float:
+        rates = cls._LLM_COST_PER_TOKEN.get(model)
+        if not rates:
+            return 0.0
+        return input_tokens * rates["input"] + output_tokens * rates["output"]
+
+    @staticmethod
+    def _extract_intent_name(action) -> str:
+        intent_result = action.context.get("intent") if isinstance(action.context, dict) else None
+        if intent_result is None:
+            return "UNKNOWN"
+        intent = getattr(intent_result, "primary_intent", None)
+        if intent is None:
+            return "UNKNOWN"
+        return intent.name if hasattr(intent, "name") else str(intent)

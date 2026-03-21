@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Protocol
+import time
+from typing import Callable, Dict, Optional, Protocol
 
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
@@ -18,8 +19,9 @@ class HealthCheckResult(BaseModel):
     """Readiness 응답 모델."""
 
     status: str  # "healthy" | "unhealthy"
-    checks: dict[str, str]  # {"postgres": "ok", "redis": "ok"}
-    details: Optional[dict[str, str]] = None  # 실패 시 상세 정보
+    checks: Dict[str, str]  # {"postgres": "ok", "redis": "ok"}
+    details: Optional[Dict[str, str]] = None  # 실패 시 상세 정보
+    connection_times: Optional[Dict[str, float]] = None  # ms
 
 
 class LivenessResult(BaseModel):
@@ -76,15 +78,19 @@ async def readiness_check(
     redis_store: Optional[HealthCheckable] = Depends(_get_redis),
 ) -> HealthCheckResult:
     """Readiness probe: DB + Redis 연결 확인."""
-    checks: dict[str, str] = {}
-    details: dict[str, str] = {}
+    checks: Dict[str, str] = {}
+    details: Dict[str, str] = {}
+    connection_times: Dict[str, float] = {}
 
     # PostgreSQL
     try:
+        t0 = time.perf_counter()
         pg_ok = pg.health_check() if pg is not None else False
+        connection_times["postgres"] = round((time.perf_counter() - t0) * 1000, 2)
     except Exception as exc:
         pg_ok = False
         details["postgres"] = str(exc)
+        connection_times["postgres"] = -1
 
     checks["postgres"] = "ok" if pg_ok else "error"
     if not pg_ok and "postgres" not in details:
@@ -92,10 +98,13 @@ async def readiness_check(
 
     # Redis
     try:
+        t0 = time.perf_counter()
         redis_ok = redis_store.health_check() if redis_store is not None else False
+        connection_times["redis"] = round((time.perf_counter() - t0) * 1000, 2)
     except Exception as exc:
         redis_ok = False
         details["redis"] = str(exc)
+        connection_times["redis"] = -1
 
     checks["redis"] = "ok" if redis_ok else "error"
     if not redis_ok and "redis" not in details:
@@ -103,10 +112,12 @@ async def readiness_check(
 
     # 결과 판정
     if pg_ok and redis_ok:
-        return HealthCheckResult(status="healthy", checks=checks)
+        return HealthCheckResult(status="healthy", checks=checks,
+                                 connection_times=connection_times)
 
     response.status_code = 503
-    return HealthCheckResult(status="unhealthy", checks=checks, details=details)
+    return HealthCheckResult(status="unhealthy", checks=checks, details=details,
+                             connection_times=connection_times)
 
 
 @router.get("/health/live", response_model=LivenessResult)
