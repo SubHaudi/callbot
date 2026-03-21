@@ -33,9 +33,10 @@ class SessionStoreBase(ABC):
         """session_id에 해당하는 세션이 존재하는지 확인한다."""
         ...
 
+    @abstractmethod
     def count(self) -> int:
-        """활성 세션 수를 반환한다. 서브클래스에서 효율적으로 오버라이드 가능."""
-        raise NotImplementedError
+        """활성 세션 수를 반환한다."""
+        ...
 
 
 class InMemorySessionStore(SessionStoreBase):

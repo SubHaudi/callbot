@@ -103,7 +103,7 @@ class TurnPipeline:
             )
         else:
             session = await loop.run_in_executor(
-                _executor, self._session_manager._store.load, session_id
+                _executor, self._session_manager.get_session, session_id
             )
 
         # PII 마스킹 (M-37 + C-06: DI masker + regex fallback)
