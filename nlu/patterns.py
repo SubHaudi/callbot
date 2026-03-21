@@ -30,6 +30,14 @@ _PATTERN_RULES: List[Tuple[List[re.Pattern], Intent]] = [
         re.compile(r"요금제\s*(?:있|좀)"),
     ], Intent.PLAN_INQUIRY),
 
+    # 납부 확인 (PAYMENT_CHECK) — BILLING보다 먼저 (납부/냈 키워드 우선)
+    ([
+        re.compile(r"납부.*(?:확인|했|됐|완료|언제)"),
+        re.compile(r"(?:돈|요금).*(?:냈|납부|입금)"),
+        re.compile(r"(?:결제|납부)\s*(?:했|됐|완료)"),
+        re.compile(r"납부\s*(?:좀|확인)"),
+    ], Intent.PAYMENT_CHECK),
+
     # 요금 조회 (BILLING_INQUIRY)
     ([
         re.compile(r"요금.*(?:조회|알려|얼마|확인|보여)"),
@@ -39,14 +47,6 @@ _PATTERN_RULES: List[Tuple[List[re.Pattern], Intent]] = [
         re.compile(r"(?:얼마|돈|비용).*(?:나와|나온|내야|냈)"),
         re.compile(r"청구.*(?:금액|내역|얼마)"),
     ], Intent.BILLING_INQUIRY),
-
-    # 납부 확인 (PAYMENT_CHECK)
-    ([
-        re.compile(r"납부.*(?:확인|했|됐|완료|언제)"),
-        re.compile(r"(?:돈|요금).*(?:냈|납부|입금)"),
-        re.compile(r"(?:결제|납부)\s*(?:했|됐|완료)"),
-        re.compile(r"납부\s*(?:좀|확인)"),
-    ], Intent.PAYMENT_CHECK),
 
     # 데이터 잔여량 조회 (DATA_USAGE_INQUIRY)
     ([
@@ -76,17 +76,18 @@ _PATTERN_RULES: List[Tuple[List[re.Pattern], Intent]] = [
         re.compile(r"(?:항의|컴플레인|민원)"),
     ], Intent.COMPLAINT),
 
+    # 통화 종료 (END_CALL) — CANCELLATION보다 먼저
+    ([
+        re.compile(r"종료|끊을게|끊겠|그만"),
+        re.compile(r"(?:됐어|다\s*했어|끝)"),
+        re.compile(r"끊어\s*(?:줘)?$"),
+    ], Intent.END_CALL),
+
     # 해지 문의 (CANCELLATION)
     ([
         re.compile(r"해지(?!.*부가)"),  # "부가" 없는 해지
-        re.compile(r"(?:탈퇴|끊을|끊고)"),
+        re.compile(r"(?:탈퇴|끊고)"),
     ], Intent.CANCELLATION),
-
-    # 통화 종료 (END_CALL)
-    ([
-        re.compile(r"종료|끊어|끊을게|끊겠|그만"),
-        re.compile(r"(?:됐어|다\s*했어|끝)"),
-    ], Intent.END_CALL),
 
     # 속도 조절 (SPEED_CONTROL)
     ([
