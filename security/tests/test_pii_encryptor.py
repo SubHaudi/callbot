@@ -214,3 +214,51 @@ def test_tokenize_same_pii_same_token_with_hmac():
     t1 = encryptor.tokenize("010-9876-5432")
     t2 = encryptor.tokenize("010-9876-5432")
     assert t1 == t2
+
+
+# ---------------------------------------------------------------------------
+# TASK-S02: AAD (session_id) 바인딩 테스트
+# ---------------------------------------------------------------------------
+
+
+def test_encrypt_decrypt_with_aad():
+    """session_id AAD로 암호화 → 동일 session_id로 복호화 성공."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    ct = encryptor.encrypt("비밀 데이터", session_id="sess-001")
+    result = encryptor.decrypt(ct, session_id="sess-001")
+    assert result == "비밀 데이터"
+
+
+def test_decrypt_with_wrong_aad_fails():
+    """다른 session_id로 복호화 시도 → DecryptionError."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    ct = encryptor.encrypt("비밀 데이터", session_id="sess-001")
+    with pytest.raises(DecryptionError):
+        encryptor.decrypt(ct, session_id="sess-OTHER")
+
+
+def test_decrypt_without_aad_when_encrypted_with_aad_fails():
+    """AAD로 암호화한 것을 AAD 없이 복호화 → DecryptionError."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    ct = encryptor.encrypt("비밀 데이터", session_id="sess-001")
+    with pytest.raises(DecryptionError):
+        encryptor.decrypt(ct, session_id=None)
+
+
+def test_encrypt_decrypt_without_aad_backward_compat():
+    """AAD 없이 암호화/복호화 — 하위 호환성."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    ct = encryptor.encrypt("하위호환")
+    assert encryptor.decrypt(ct) == "하위호환"
