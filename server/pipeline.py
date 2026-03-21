@@ -77,6 +77,7 @@ class TurnPipeline:
         prompt_loader: Optional[Any] = None,
         metrics_collector: Optional[Any] = None,
         executor: Optional[ThreadPoolExecutor] = None,
+        intent_classifier: Optional[Any] = None,
     ) -> None:
         self._pif = pif
         self._orchestrator = orchestrator
@@ -87,6 +88,11 @@ class TurnPipeline:
         self._prompt_loader = prompt_loader
         self._metrics = metrics_collector
         self._executor = executor or _default_executor
+        # Phase E: NLU classifier DI (기본값: MockIntentClassifier)
+        if intent_classifier is None:
+            from callbot.nlu.intent_classifier import IntentClassifier, MockIntentClassifier
+            intent_classifier = IntentClassifier(model=MockIntentClassifier())
+        self._intent_classifier = intent_classifier
 
     async def process(
         self,
@@ -309,7 +315,6 @@ class TurnPipeline:
         Returns:
             전환 확인 메시지 (새 인텐트 감지 시) 또는 None (기존 플로우 계속)
         """
-        from callbot.nlu.intent_classifier import IntentClassifier, MockIntentClassifier
         from callbot.nlu.intent_classifier import SessionContext as NLUSessionContext
         from callbot.nlu.enums import SYSTEM_CONTROL_INTENTS, Intent
 
@@ -318,10 +323,9 @@ class TurnPipeline:
         if stripped.isdigit() or stripped in ("네", "아니", "아니오", "맞아", "응", "계속", "ㅇㅇ", "ㄴㄴ"):
             return None
 
-        # NLU로 현재 발화 분류
-        clf = IntentClassifier(model=MockIntentClassifier())
+        # NLU로 현재 발화 분류 (DI된 classifier 재사용)
         nlu_ctx = NLUSessionContext(session_id=session.session_id, turn_count=len(getattr(session, "turns", [])))
-        result = clf.classify(text, nlu_ctx)
+        result = self._intent_classifier.classify(text, nlu_ctx)
         new_intent = result.primary_intent
 
         # UNCLASSIFIED면 기존 플로우 계속
@@ -365,7 +369,10 @@ class TurnPipeline:
         new_intent = getattr(session, "pending_switch_intent", None)
 
         # "네"/"맞아" → 기존 플로우 취소 + 새 인텐트 시작
-        if any(kw in text for kw in ("네", "맞아", "응", "그래", "ㅇㅇ")):
+        # 긍정 응답 — strip 후 정확 매칭 (부분문자열 오탐 방지)
+        _YES_WORDS = {"네", "맞아", "응", "그래", "ㅇㅇ", "예", "맞아요", "네네"}
+        stripped = text.strip()
+        if stripped in _YES_WORDS:
             # 기존 상태 정리
             session.pending_intent = None
             session.pending_switch_intent = None

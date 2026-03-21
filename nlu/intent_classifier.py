@@ -121,6 +121,8 @@ class MockIntentClassifier(IntentClassifierBase):
         )
 
     def _match_primary_intent(self, text: str) -> Intent:
+        # ReDoS 방어: 입력 길이 제한 (STT 발화는 통상 ~100자 이내)
+        text = text[:200]
         # Phase E: 정규식 패턴 우선 매칭
         for patterns, intent in _PATTERN_RULES:
             if any(p.search(text) for p in patterns):

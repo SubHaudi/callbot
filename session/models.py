@@ -69,7 +69,13 @@ class SessionContext:
     @property
     def elapsed_minutes(self) -> float:
         """세션 시작 이후 경과 시간 (분)."""
-        delta = datetime.now() - self.start_time
+        now = datetime.now()
+        start = self.start_time
+        # timezone-aware/naive 혼용 방지
+        if hasattr(start, 'tzinfo') and start.tzinfo is not None:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+        delta = now - start
         return delta.total_seconds() / 60.0
 
     @property
