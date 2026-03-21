@@ -14,13 +14,14 @@ import uuid
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from callbot.security.exceptions import DecryptionError, TokenNotFoundError
+from callbot.security.exceptions import DecryptionError, SecretNotFoundError, TokenNotFoundError
 from callbot.security.secrets_manager import SecretsManager
 from callbot.security.token_mapping_store import TokenMappingStoreBase
 
 _IV_LEN = 12
 _TAG_LEN = 16
 _KEY_VERSION_LEN = 1  # 1 byte for key version prefix
+_MAGIC_BYTE = 0xCB  # 매직 바이트: 새 포맷 식별자 (0xCB = "CallBot")
 
 
 class PIIEncryptor:
@@ -55,8 +56,8 @@ class PIIEncryptor:
         secret_name = f"{self._encryption_key_secret_name}/v{v}"
         try:
             secret = self._secrets_manager.get_secret(secret_name)
-        except Exception:
-            # fallback: 버전 없는 레거시 키 이름
+        except SecretNotFoundError:
+            # fallback: 버전 없는 레거시 키 이름 (마이그레이션 기간 한정)
             secret = self._secrets_manager.get_secret(self._encryption_key_secret_name)
         # hex 문자열(64자)이면 디코딩, 아니면 UTF-8 인코딩
         if len(secret) == 64:
@@ -79,7 +80,7 @@ class PIIEncryptor:
             plaintext: 암호화할 평문.
             session_id: AAD(Additional Authenticated Data)로 사용할 세션 ID.
 
-        반환값: key_version(1B) + iv(12B) + tag(16B) + ciphertext.
+        반환값: magic(1B) + key_version(1B) + iv(12B) + tag(16B) + ciphertext.
         """
         key = self._get_key()
         iv = os.urandom(_IV_LEN)
@@ -88,11 +89,14 @@ class PIIEncryptor:
         encrypted = aesgcm.encrypt(iv, plaintext.encode("utf-8"), aad)
         ciphertext_part = encrypted[:-_TAG_LEN]
         tag = encrypted[-_TAG_LEN:]
-        version_byte = self._current_key_version.to_bytes(1, "big")
-        return version_byte + iv + tag + ciphertext_part
+        header = bytes([_MAGIC_BYTE, self._current_key_version])
+        return header + iv + tag + ciphertext_part
 
     def decrypt(self, ciphertext: bytes, session_id: str | None = None) -> str:
-        """AES-256-GCM 복호화. key_version 헤더로 적합 키를 선택한다.
+        """AES-256-GCM 복호화. 매직 바이트로 새/레거시 포맷을 구분한다.
+
+        새 포맷: magic(1B) + key_version(1B) + iv(12B) + tag(16B) + ct
+        레거시: iv(12B) + tag(16B) + ct (매직 바이트 없음)
 
         Args:
             ciphertext: 암호화된 바이너리.
@@ -101,11 +105,12 @@ class PIIEncryptor:
         Raises:
             DecryptionError: 인증 태그 검증 실패 시 (AAD 불일치 포함).
         """
-        # key_version 헤더 유무 판별: 새 포맷(1B prefix) vs 레거시(없음)
-        if len(ciphertext) > _IV_LEN + _TAG_LEN:
-            version = ciphertext[0]
-            remainder = ciphertext[_KEY_VERSION_LEN:]
+        if len(ciphertext) >= 2 and ciphertext[0] == _MAGIC_BYTE:
+            # 새 포맷: magic + version + iv + tag + ct
+            version = ciphertext[1]
+            remainder = ciphertext[2:]
         else:
+            # 레거시 포맷: iv + tag + ct (version 헤더 없음)
             version = self._current_key_version
             remainder = ciphertext
 
