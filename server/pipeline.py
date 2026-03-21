@@ -396,8 +396,6 @@ class TurnPipeline:
             return await self._start_plan_change(loop, session)
         elif intent == Intent.ADDON_CANCEL:
             return await self._start_addon_cancel(loop, session)
-        elif intent == Intent.BILLING_INQUIRY:
-            return await self._handle_billing_query(loop, session)
         else:
             intent_name = intent.value if hasattr(intent, "value") else str(intent)
             return f"'{intent_name}' 관련 도움을 드리겠습니다."

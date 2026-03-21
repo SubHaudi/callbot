@@ -63,3 +63,72 @@ class TestIntentSwitchDetection:
         assert "취소" in result or "전환" in result
         assert "부가서비스" in result or "해지" in result
         assert session.pending_switch_intent is not None
+
+
+class TestIntentSwitchConfirmation:
+    """FR-005/006: 전환 확인 Yes/No 응답 처리."""
+
+    def _make_pipeline(self):
+        from callbot.server.pipeline import TurnPipeline
+        return TurnPipeline(
+            pif=MagicMock(),
+            orchestrator=MagicMock(),
+            session_manager=MagicMock(),
+            llm_engine=FakeLLMEngine(),
+            external_system=MagicMock(),
+        )
+
+    def test_confirm_yes_clears_state(self):
+        """'네' 응답 → 기존 플로우 취소 + 상태 정리."""
+        pipeline = self._make_pipeline()
+        session = _make_session()
+        session.pending_switch_intent = Intent.BILLING_INQUIRY
+
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(
+            pipeline._handle_switch_confirm(loop, session, "네")
+        )
+
+        # 기존 상태 정리 확인
+        assert session.pending_intent is None
+        assert session.pending_switch_intent is None
+        assert getattr(session, "_multi_step_retry_count", 0) == 0
+
+    def test_confirm_yes_synonym(self):
+        """'맞아' 동의어도 동작."""
+        pipeline = self._make_pipeline()
+        session = _make_session()
+        session.pending_switch_intent = Intent.BILLING_INQUIRY
+
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(
+            pipeline._handle_switch_confirm(loop, session, "맞아")
+        )
+        assert session.pending_intent is None
+
+    def test_confirm_no_keeps_flow(self):
+        """'아니' 응답 → 기존 플로우 유지."""
+        pipeline = self._make_pipeline()
+        session = _make_session()
+        session.pending_switch_intent = Intent.BILLING_INQUIRY
+
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(
+            pipeline._handle_switch_confirm(loop, session, "아니")
+        )
+
+        assert "계속" in result or "기존" in result
+        assert session.pending_switch_intent is None
+        assert session.pending_intent == "PLAN_CHANGE_SELECT"  # 기존 유지
+
+    def test_confirm_no_synonym(self):
+        """'계속' 동의어도 동작."""
+        pipeline = self._make_pipeline()
+        session = _make_session()
+        session.pending_switch_intent = Intent.BILLING_INQUIRY
+
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(
+            pipeline._handle_switch_confirm(loop, session, "계속")
+        )
+        assert session.pending_intent == "PLAN_CHANGE_SELECT"
