@@ -64,10 +64,30 @@ _OUT_OF_SCOPE_PATTERNS = _Pattern(
     ],
 )
 
+# 영어 인젝션 패턴
+_ENGLISH_INJECTION_PATTERNS = _Pattern(
+    name="영어_인젝션_시도",
+    patterns=[
+        r"ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)",
+        r"disregard\s+(all\s+)?(previous|prior|above)",
+        r"you\s+are\s+now\s+a",
+        r"act\s+as\s+(a\s+)?\w+",
+        r"pretend\s+(to\s+be|you\s+are)",
+        r"reveal\s+(your|the)\s+(system\s+)?prompt",
+        r"show\s+(me\s+)?(your|the)\s+(system\s+)?prompt",
+        r"what\s+(are|is)\s+your\s+(instructions?|rules?|prompt)",
+        r"forget\s+(all\s+)?(your\s+)?(previous\s+)?instructions?",
+        r"new\s+role",
+        r"jailbreak",
+        r"DAN\s+mode",
+    ],
+)
+
 _ALL_PATTERNS: list[_Pattern] = [
     _ROLE_CHANGE_PATTERNS,
     _PROMPT_EXPOSURE_PATTERNS,
     _OUT_OF_SCOPE_PATTERNS,
+    _ENGLISH_INJECTION_PATTERNS,
 ]
 
 # 컴파일된 정규식 캐시 (모듈 로드 시 1회 컴파일)
