@@ -5,6 +5,7 @@ Property 6~9 (Hypothesis) + 단위 테스트 3개.
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,11 +23,18 @@ from callbot.security.token_mapping_store import InMemoryTokenMappingStore
 
 # 32-byte key for AES-256
 TEST_KEY = "a" * 32  # 32 bytes when encoded to UTF-8
+TEST_HMAC_SALT = "test-hmac-salt-value"
 
 
-def _make_mock_sm(key: str = TEST_KEY) -> SecretsManager:
+def _make_mock_sm(key: str = TEST_KEY, salt: str = TEST_HMAC_SALT) -> SecretsManager:
     mock_sm = MagicMock(spec=SecretsManager)
-    mock_sm.get_secret.return_value = key
+
+    def _get_secret(name: str) -> str:
+        if "hmac-salt" in name:
+            return salt
+        return key
+
+    mock_sm.get_secret.side_effect = _get_secret
     return mock_sm
 
 
@@ -156,3 +164,53 @@ class TestPIIEncryptorUnit:
 
         with pytest.raises(ValueError, match="32 bytes"):
             encryptor.encrypt("some-pii")
+
+
+# ---------------------------------------------------------------------------
+# TASK-S01: HMAC salt 테스트
+# ---------------------------------------------------------------------------
+
+
+def test_hash_pii_uses_hmac_not_plain_sha256():
+    """HMAC+salt 해시가 plain SHA-256과 다름을 검증."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    pii = "010-1234-5678"
+    hmac_hash = encryptor._hash_pii(pii)
+    plain_hash = hashlib.sha256(pii.encode("utf-8")).hexdigest()
+    assert hmac_hash != plain_hash
+
+
+def test_different_salt_produces_different_hash():
+    """salt 변경 시 동일 PII의 해시가 달라짐을 검증."""
+    store = InMemoryTokenMappingStore()
+    sm1 = _make_mock_sm(salt="salt-alpha")
+    sm2 = _make_mock_sm(salt="salt-beta")
+    enc1 = PIIEncryptor(sm1, store)
+    enc2 = PIIEncryptor(sm2, store)
+
+    pii = "990101-1234567"
+    assert enc1._hash_pii(pii) != enc2._hash_pii(pii)
+
+
+def test_tokenize_with_hmac_roundtrip():
+    """HMAC 해시 기반 tokenize → detokenize 라운드트립."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    token = encryptor.tokenize("홍길동")
+    assert encryptor.detokenize(token) == "홍길동"
+
+
+def test_tokenize_same_pii_same_token_with_hmac():
+    """HMAC 기반에서도 동일 PII → 동일 토큰 보장."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    t1 = encryptor.tokenize("010-9876-5432")
+    t2 = encryptor.tokenize("010-9876-5432")
+    assert t1 == t2
