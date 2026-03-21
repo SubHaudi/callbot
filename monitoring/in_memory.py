@@ -33,6 +33,7 @@ class InMemoryCollector:
         name: str,
         value: float,
         dimensions: Optional[Dict[str, str]] = None,
+        unit: str = "Milliseconds",
     ) -> None:
         key = (name, _dim_key(dimensions))
         self._observations[key].append(value)
@@ -62,3 +63,7 @@ class InMemoryCollector:
         self, name: str, dimensions: Optional[Dict[str, str]] = None
     ) -> Optional[float]:
         return self._gauges.get((name, _dim_key(dimensions)))
+
+    def flush(self) -> None:
+        """No-op for in-memory collector."""
+        pass

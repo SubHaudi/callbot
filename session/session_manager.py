@@ -39,6 +39,10 @@ class SessionManager:
             raise SessionNotFoundError(session_id)
         return ctx
 
+    def get_session(self, session_id: str) -> Optional[SessionContext]:
+        """Public 세션 조회. 없으면 None 반환 (예외 없음)."""
+        return self._store.load(session_id)
+
     def _save_context(self, context: SessionContext) -> None:
         """상태 변경 후 저장소에 반영."""
         self._store.save(context)
@@ -106,9 +110,7 @@ class SessionManager:
         # 세션 메트릭
         if self._metrics is not None:
             self._metrics.increment("session_created_total")
-            current = getattr(self, "_active_session_count", 0) + 1
-            self._active_session_count = current
-            self._metrics.set_gauge("active_sessions", current)
+            self._metrics.set_gauge("active_sessions", self._store.count())
 
         return context
 
@@ -193,9 +195,7 @@ class SessionManager:
         # 세션 종료 메트릭
         if self._metrics is not None:
             self._metrics.increment("session_ended_total")
-            current = max(getattr(self, "_active_session_count", 1) - 1, 0)
-            self._active_session_count = current
-            self._metrics.set_gauge("active_sessions", current)
+            self._metrics.set_gauge("active_sessions", self._store.count())
 
     def check_limits(self, session_id: str) -> SessionLimitStatus:
         """턴/시간 제한 확인.
