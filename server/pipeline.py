@@ -344,6 +344,14 @@ class TurnPipeline:
                 return "입력 오류가 반복되어 요금제 변경을 취소합니다. 다시 시도하시려면 말씀해주세요."
             return f"올바른 번호 또는 요금제명을 말씀해주세요. ({retry_count}/3회 시도)"
 
+        # QA #3: 동일 요금제 변경 차단
+        plc_current = getattr(plc, "current_plan", {}) if plc else {}
+        if plc_current and selected.get("name") == plc_current.get("name"):
+            return (
+                f"현재 이용 중인 요금제가 '{selected['name']}'입니다. "
+                "다른 요금제를 선택해주세요."
+            )
+
         session.pending_intent = "PLAN_CHANGE_CONFIRM"
         session._selected_plan = selected  # 임시 저장
         session._multi_step_retry_count = 0  # 성공 시 리셋
