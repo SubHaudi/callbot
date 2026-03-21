@@ -147,6 +147,23 @@ class TestPIFBranching:
 
         assert action.action_type == ActionType.PROCESS_BUSINESS
         assert action.target_component == "llm_engine"
+        assert action.context["intent"] is None
+
+    def test_pif_safe_with_classifier_returns_intent_in_context(self):
+        """is_safe=True, 분류기 있음 → context['intent']에 분류 결과 포함 (C-02)"""
+        from unittest.mock import MagicMock
+        mock_classifier = MagicMock()
+        mock_result = MagicMock()
+        mock_classifier.classify.return_value = mock_result
+
+        orchestrator = ConversationOrchestrator(intent_classifier=mock_classifier)
+        session = MockSession()
+        filter_result = MockFilterResult(is_safe=True)
+
+        action = orchestrator.process_turn(session, filter_result)
+
+        assert action.context["intent"] is mock_result
+        mock_classifier.classify.assert_called_once_with(filter_result.original_text, session)
 
 
 # ---------------------------------------------------------------------------
