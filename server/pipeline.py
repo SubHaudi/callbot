@@ -174,6 +174,10 @@ class TurnPipeline:
         # total
         self._observe_metric("total_duration_ms", self._elapsed_ms(t_start), {"intent": intent_name})
 
+        # flush metrics to backend
+        if self._metrics is not None:
+            self._metrics.flush()
+
         return TurnResult(
             session_id=session.session_id,
             response_text=response_text,

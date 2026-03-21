@@ -33,6 +33,10 @@ class SessionStoreBase(ABC):
         """session_id에 해당하는 세션이 존재하는지 확인한다."""
         ...
 
+    def count(self) -> int:
+        """활성 세션 수를 반환한다. 서브클래스에서 효율적으로 오버라이드 가능."""
+        raise NotImplementedError
+
 
 class InMemorySessionStore(SessionStoreBase):
     """테스트 및 로컬 개발용 인메모리 구현체.
@@ -54,3 +58,6 @@ class InMemorySessionStore(SessionStoreBase):
 
     def exists(self, session_id: str) -> bool:
         return session_id in self._store
+
+    def count(self) -> int:
+        return len(self._store)

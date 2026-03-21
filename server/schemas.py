@@ -24,12 +24,13 @@ class TurnRequest:
     def validate(self) -> list:
         """Return list of error dicts. Empty list = valid."""
         errors = []
-        if not self.text or len(self.text) < 1:
+        if self.text is None or len(self.text) < 1:
             errors.append({
                 "loc": ["body", "text"],
                 "msg": "text is required and must be at least 1 character",
                 "type": "value_error",
             })
+            return errors  # early return — no point checking length
         if len(self.text) > 2000:
             errors.append({
                 "loc": ["body", "text"],

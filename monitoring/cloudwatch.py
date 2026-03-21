@@ -31,8 +31,9 @@ class CloudWatchCollector:
         name: str,
         value: float,
         dimensions: Optional[Dict[str, str]] = None,
+        unit: str = "Milliseconds",
     ) -> None:
-        self._pending.append((name, value, "Milliseconds", dimensions))
+        self._pending.append((name, value, unit, dimensions))
 
     def set_gauge(
         self,

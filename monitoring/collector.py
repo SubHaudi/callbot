@@ -25,6 +25,7 @@ class MetricsCollector(Protocol):
         name: str,
         value: float,
         dimensions: Optional[Dict[str, str]] = None,
+        unit: str = "Milliseconds",
     ) -> None:
         """Record an observation (histogram/distribution)."""
         ...
@@ -36,4 +37,8 @@ class MetricsCollector(Protocol):
         dimensions: Optional[Dict[str, str]] = None,
     ) -> None:
         """Set a gauge to an absolute value."""
+        ...
+
+    def flush(self) -> None:
+        """Flush pending metrics to the backend. No-op for in-memory."""
         ...
