@@ -11,7 +11,7 @@ from callbot.business import (
     ExternalAPIWrapper,
     RoutingEngine,
 )
-from callbot.business.api_wrapper import CircuitBreaker, ExternalSystemBase
+from callbot.business.api_wrapper import CircuitBreaker, APIWrapperSystemBase
 from callbot.business.enums import (
     APIErrorType,
     AgentGroup,
@@ -132,7 +132,7 @@ def test_routing_outside_business_hours():
 
 def test_api_wrapper_retry_then_circuit_opens():
     """반복 실패 후 서킷브레이커 OPEN → 이후 요청 즉시 차단"""
-    sys_mock = MagicMock(spec=ExternalSystemBase)
+    sys_mock = MagicMock(spec=APIWrapperSystemBase)
     sys_mock.call.side_effect = Exception("서버 오류")
     wrapper = ExternalAPIWrapper(external_system=sys_mock)
 
@@ -151,7 +151,7 @@ def test_api_wrapper_retry_then_circuit_opens():
 
 def test_api_wrapper_retry_succeeds_on_second_attempt():
     """1회 실패 후 재시도 성공"""
-    sys_mock = MagicMock(spec=ExternalSystemBase)
+    sys_mock = MagicMock(spec=APIWrapperSystemBase)
     sys_mock.call.side_effect = [Exception("일시 오류"), {"result": "ok"}]
     wrapper = ExternalAPIWrapper(external_system=sys_mock)
 

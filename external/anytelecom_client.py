@@ -1,4 +1,4 @@
-"""AnyTelecomHTTPClient — 저수준 HTTP 클라이언트 (api_wrapper.ExternalSystemBase 구현)."""
+"""AnyTelecomHTTPClient — 저수준 HTTP 클라이언트 (api_wrapper.APIWrapperSystemBase 구현)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import time
 
 import requests
 
-from callbot.business.api_wrapper import ExternalSystemBase as APIWrapperSystemBase
+from callbot.business.api_wrapper import APIWrapperSystemBase
 from callbot.external.mtls_provider import mTLSCertificateProvider
 from callbot.external.operation_mapping import OperationMapping
 from callbot.external.pii_masker import PIIMasker
@@ -22,7 +22,7 @@ _DYNAMIC_PARAM_RE = re.compile(r"/[0-9a-fA-F-]{8,}|/\d+")
 
 
 class AnyTelecomHTTPClient(APIWrapperSystemBase):
-    """api_wrapper.ExternalSystemBase를 구현하는 저수준 HTTP 클라이언트.
+    """api_wrapper.APIWrapperSystemBase를 구현하는 저수준 HTTP 클라이언트.
 
     mTLS + API 키 인증으로 AnyTelecom 내부 REST API에 HTTP 요청을 수행한다.
     """
