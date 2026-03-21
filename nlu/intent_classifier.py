@@ -18,6 +18,7 @@ from pathlib import Path
 
 from callbot.nlu.enums import Intent, RelationType
 from callbot.nlu.models import ClassificationResult, IntentRelation
+from callbot.nlu.patterns import _PATTERN_RULES
 
 logger = logging.getLogger(__name__)
 
