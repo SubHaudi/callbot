@@ -122,33 +122,250 @@ class TurnPipeline:
         action: Any,
         masked_text: str,
     ) -> str:
-        """비즈니스 로직: intent → API 호출 → LLM 응답 생성."""
-        intent_result = action.context.get("intent")
-        api_result_data: Optional[dict] = None
+        """비즈니스 로직: intent → API 호출 → LLM 응답 생성.
 
-        # intent 기반 API 호출 (C-03: api_result를 LLM에 전달)
+        다단계 플로우:
+        - PLAN_CHANGE: Turn 1(목록) → Turn 2(선택) → Turn 3(확인/실행)
+        - ADDON_CANCEL: Turn 1(목록) → Turn 2(확인/실행)
+        """
+        from callbot.nlu.enums import Intent
+
+        intent_result = action.context.get("intent")
+
+        # 다단계 플로우: pending_intent가 있으면 이전 턴의 연속
+        pending = getattr(session, "pending_intent", None)
+        if pending is not None:
+            return await self._handle_multi_step_continuation(
+                loop, session, masked_text, pending
+            )
+
+        intent = getattr(intent_result, "primary_intent", None) if intent_result else None
+
+        # 다단계 플로우 시작
+        if intent == Intent.PLAN_CHANGE:
+            return await self._start_plan_change(loop, session)
+        if intent == Intent.ADDON_CANCEL:
+            return await self._start_addon_cancel(loop, session)
+
+        # 일반 1회성 조회
+        api_result_data: Optional[dict] = None
         if intent_result is not None and self._external_system is not None:
             api_result_data = await self._dispatch_business_api(
                 loop, intent_result
             )
 
-        # LLM에 system_prompt + api_result + masked_text 전달
+        return await self._generate_llm_response(
+            loop, masked_text, api_result_data
+        )
+
+    async def _start_plan_change(
+        self, loop: asyncio.AbstractEventLoop, session: Any
+    ) -> str:
+        """요금제 변경 Turn 1: 현재 요금제 목록을 조회하여 제시."""
+        from callbot.business.enums import BillingOperation
+
+        if self._external_system is None:
+            return "시스템 점검 중입니다. 잠시 후 다시 시도해주세요."
+
+        result = await loop.run_in_executor(
+            _executor,
+            self._external_system.call_billing_api,
+            BillingOperation.QUERY_PLANS,
+            {},
+        )
+
+        if not result.is_success:
+            return "요금제 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요."
+
+        plans = result.data.get("plans", [])
+        current = result.data.get("current_plan", {})
+
+        # 세션에 pending 상태 저장
+        session.pending_intent = "PLAN_CHANGE_SELECT"
+        if hasattr(session, "plan_list_context"):
+            from callbot.session.models import PlanListContext
+            session.plan_list_context = PlanListContext(
+                available_plans=plans,
+                current_page=0,
+                page_size=len(plans),
+                is_exhausted=False,
+                current_plan=current if isinstance(current, dict) else {},
+            )
+
+        plan_lines = "\n".join(
+            f"  {i+1}. {p['name']} — 월 {p['monthly_fee']:,}원"
+            for i, p in enumerate(plans)
+        )
+        current_name = current.get("name", "알 수 없음") if isinstance(current, dict) else str(current)
+        return (
+            f"현재 요금제는 '{current_name}'입니다.\n"
+            f"변경 가능한 요금제:\n{plan_lines}\n"
+            "변경하실 요금제 번호를 말씀해주세요. (취소하려면 '취소')"
+        )
+
+    async def _start_addon_cancel(
+        self, loop: asyncio.AbstractEventLoop, session: Any
+    ) -> str:
+        """부가서비스 해지 Turn 1: 부가서비스 목록 제시 (FakeSystem은 addons 리스트 보유)."""
+        # pending 상태 저장
+        session.pending_intent = "ADDON_CANCEL_SELECT"
+        return (
+            "해지할 부가서비스를 말씀해주세요.\n"
+            "예: '데이터 쉐어링 해지' (취소하려면 '취소')"
+        )
+
+    async def _handle_multi_step_continuation(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        session: Any,
+        masked_text: str,
+        pending: str,
+    ) -> str:
+        """다단계 플로우 연속 턴 처리."""
+        # 취소 처리
+        if "취소" in masked_text:
+            session.pending_intent = None
+            if hasattr(session, "plan_list_context"):
+                session.plan_list_context = None
+            return "요청이 취소되었습니다. 다른 도움이 필요하시면 말씀해주세요."
+
+        if pending == "PLAN_CHANGE_SELECT":
+            return await self._handle_plan_select(loop, session, masked_text)
+        if pending == "PLAN_CHANGE_CONFIRM":
+            return await self._handle_plan_confirm(loop, session, masked_text)
+        if pending == "ADDON_CANCEL_SELECT":
+            return await self._handle_addon_select(loop, session, masked_text)
+
+        # 알 수 없는 pending 상태 초기화
+        session.pending_intent = None
+        return "처리할 수 없는 요청입니다. 다시 말씀해주세요."
+
+    async def _handle_plan_select(
+        self, loop: asyncio.AbstractEventLoop, session: Any, text: str
+    ) -> str:
+        """요금제 변경 Turn 2: 사용자 선택 → 확인 요청."""
+        plc = getattr(session, "plan_list_context", None)
+        plans = plc.available_plans if plc else []
+
+        # 번호 또는 이름으로 선택
+        selected = None
+        try:
+            idx = int(text.strip()) - 1
+            if 0 <= idx < len(plans):
+                selected = plans[idx]
+        except (ValueError, TypeError):
+            # 이름 매칭
+            for p in plans:
+                if p["name"] in text:
+                    selected = p
+                    break
+
+        if selected is None:
+            return "올바른 번호 또는 요금제명을 말씀해주세요."
+
+        session.pending_intent = "PLAN_CHANGE_CONFIRM"
+        session._selected_plan = selected  # 임시 저장
+        return (
+            f"'{selected['name']}' (월 {selected['monthly_fee']:,}원)으로 변경하시겠습니까?\n"
+            "'네' 또는 '아니오'로 답변해주세요."
+        )
+
+    async def _handle_plan_confirm(
+        self, loop: asyncio.AbstractEventLoop, session: Any, text: str
+    ) -> str:
+        """요금제 변경 Turn 3: 확인 → 실행."""
+        from callbot.business.enums import BillingOperation
+
+        if "아니" in text or "취소" in text:
+            session.pending_intent = None
+            session.plan_list_context = None
+            return "요금제 변경이 취소되었습니다."
+
+        selected = getattr(session, "_selected_plan", None)
+        if selected is None or self._external_system is None:
+            session.pending_intent = None
+            return "처리 중 오류가 발생했습니다. 다시 시도해주세요."
+
+        result = await loop.run_in_executor(
+            _executor,
+            self._external_system.call_billing_api,
+            BillingOperation.CHANGE_PLAN,
+            {"plan_name": selected["name"]},
+        )
+
+        # 상태 초기화
+        session.pending_intent = None
+        session.plan_list_context = None
+        if hasattr(session, "_selected_plan"):
+            del session._selected_plan
+
+        if result.is_success:
+            return f"요금제가 '{selected['name']}'으로 변경되었습니다."
+        return "요금제 변경에 실패했습니다. 잠시 후 다시 시도해주세요."
+
+    async def _handle_addon_select(
+        self, loop: asyncio.AbstractEventLoop, session: Any, text: str
+    ) -> str:
+        """부가서비스 해지: 사용자 선택 → 즉시 실행."""
+        from callbot.business.enums import BillingOperation
+
+        if self._external_system is None:
+            session.pending_intent = None
+            return "시스템 점검 중입니다."
+
+        # 부가서비스 이름에서 addon_id 추출 (FakeSystem 기반)
+        # 실제 구현에서는 목록 조회 후 매칭
+        addon_map = {
+            "데이터 쉐어링": "ADD-001",
+            "안심 데이터": "ADD-002",
+            "약정 보험": "ADD-003",
+        }
+
+        addon_id = None
+        addon_name = None
+        for name, aid in addon_map.items():
+            if name in text:
+                addon_id = aid
+                addon_name = name
+                break
+
+        if addon_id is None:
+            return "해지할 부가서비스 이름을 정확히 말씀해주세요."
+
+        result = await loop.run_in_executor(
+            _executor,
+            self._external_system.call_billing_api,
+            BillingOperation.CANCEL_ADDON,
+            {"addon_id": addon_id},
+        )
+
+        session.pending_intent = None
+
+        if result.is_success:
+            return f"'{addon_name}' 부가서비스가 해지되었습니다."
+        error_reason = result.data.get("reason", "알 수 없는 오류") if result.data else "알 수 없는 오류"
+        return f"해지 실패: {error_reason}"
+
+    async def _generate_llm_response(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        masked_text: str,
+        api_result_data: Optional[dict],
+    ) -> str:
+        """LLM 응답 생성 (공통)."""
         system_prompt = (
             "당신은 AnyTelecom 고객센터 AI 상담사입니다. "
             "고객의 요청에 친절하고 정확하게 답변하세요."
         )
 
-        # api_result가 있으면 LLM context에 포함
         if api_result_data is not None:
             context_text = f"{system_prompt}\n\n[API 조회 결과]\n{api_result_data}"
         else:
             context_text = system_prompt
 
-        response_text = await loop.run_in_executor(
+        return await loop.run_in_executor(
             _executor, self._llm_engine.generate, context_text, masked_text
         )
-
-        return response_text
 
     async def _dispatch_business_api(
         self,
