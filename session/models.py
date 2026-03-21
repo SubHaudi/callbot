@@ -59,6 +59,7 @@ class SessionContext:
     plan_list_context: Optional[PlanListContext]
     pending_intent: Optional[Any]
     pending_classification: Optional[Any]
+    pending_switch_intent: Optional[Any] = None  # Phase E: 인텐트 전환 대기
 
     @property
     def turn_count(self) -> int:
