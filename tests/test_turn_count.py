@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from callbot.session.repository import CallbotDBRepository, InMemoryDBConnection
-from callbot.session.models import ConversationSession, ConversationTurn
+from callbot.session.models import ConversationSession, ConversationTurn, TurnType
 
 
 def _make():
@@ -40,16 +40,24 @@ def test_turn_count_increments_after_insert_turn():
         turn_id="turn-1",
         session_id="test-session-1",
         turn_number=1,
-        speaker="customer",
-        text="요금 조회해줘",
+        turn_type=TurnType.BUSINESS,
+        customer_utterance="요금 조회해줘",
+        stt_confidence=0.95,
         intent=None,
-        confidence=None,
-        api_called=None,
-        api_result=None,
-        response_text="안내드리겠습니다",
-        started_at=now,
-        ended_at=now,
-        duration_ms=100,
+        intent_confidence=0.0,
+        entities=[],
+        bot_response="안내드리겠습니다",
+        llm_confidence=None,
+        verification_status=None,
+        response_time_ms=100,
+        is_dtmf_input=False,
+        is_barge_in=False,
+        is_legal_required=False,
+        masking_applied=False,
+        masking_restore_success=True,
+        unrestored_tokens=[],
+        response_replaced_by_template=False,
+        timestamp=now,
     )
     repo.insert_turn(turn)
 
@@ -62,12 +70,17 @@ def test_turn_count_increments_after_insert_turn():
         turn_id="turn-2",
         session_id="test-session-1",
         turn_number=2,
-        speaker="customer",
-        text="더 알려줘",
-        intent=None, confidence=None,
-        api_called=None, api_result=None,
-        response_text="네",
-        started_at=now, ended_at=now, duration_ms=50,
+        turn_type=TurnType.BUSINESS,
+        customer_utterance="더 알려줘",
+        stt_confidence=0.95,
+        intent=None, intent_confidence=0.0, entities=[],
+        bot_response="네",
+        llm_confidence=None, verification_status=None,
+        response_time_ms=50,
+        is_dtmf_input=False, is_barge_in=False,
+        is_legal_required=False, masking_applied=False,
+        masking_restore_success=True, unrestored_tokens=[],
+        response_replaced_by_template=False, timestamp=now,
     )
     repo.insert_turn(turn2)
     stored = repo.get_session("test-session-1")
