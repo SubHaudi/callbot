@@ -450,9 +450,37 @@ class TurnPipeline:
             else:
                 context_text = system_prompt
 
-        return await loop.run_in_executor(
-            _executor, self._llm_engine.generate, context_text, masked_text
-        )
+        model_name = getattr(self._llm_engine, "model_name", "unknown")
+        t_llm_call = time.perf_counter()
+        try:
+            result = await loop.run_in_executor(
+                _executor, self._llm_engine.generate, context_text, masked_text
+            )
+            llm_elapsed = self._elapsed_ms(t_llm_call)
+
+            # LLM 메트릭
+            self._increment_metric("llm_requests_total", dimensions={"model": model_name})
+            self._observe_metric("llm_duration_ms", llm_elapsed, {"model": model_name})
+
+            # 토큰 추적
+            input_tokens = getattr(self._llm_engine, "last_input_tokens", 0)
+            output_tokens = getattr(self._llm_engine, "last_output_tokens", 0)
+            if input_tokens:
+                self._increment_metric("llm_input_tokens", input_tokens, {"model": model_name})
+            if output_tokens:
+                self._increment_metric("llm_output_tokens", output_tokens, {"model": model_name})
+
+            # 비용 추정
+            cost = self._estimate_llm_cost(model_name, input_tokens, output_tokens)
+            if cost > 0:
+                self._increment_metric("llm_estimated_cost_usd", cost, {"model": model_name})
+
+            return result
+        except Exception as e:
+            self._increment_metric("llm_errors_total", dimensions={
+                "model": model_name, "error_type": "exception"
+            })
+            raise
 
     async def _dispatch_business_api(
         self,
@@ -530,6 +558,19 @@ class TurnPipeline:
             return
         for pattern_name in filter_result.detected_patterns:
             self._increment_metric("injection_blocked_total", 1, {"pattern_name": pattern_name})
+
+    # LLM 모델별 단가 (USD per token)
+    _LLM_COST_PER_TOKEN = {
+        "sonnet-4": {"input": 0.003 / 1000, "output": 0.015 / 1000},
+        "haiku-3": {"input": 0.00025 / 1000, "output": 0.00125 / 1000},
+    }
+
+    @classmethod
+    def _estimate_llm_cost(cls, model: str, input_tokens: int, output_tokens: int) -> float:
+        rates = cls._LLM_COST_PER_TOKEN.get(model)
+        if not rates:
+            return 0.0
+        return input_tokens * rates["input"] + output_tokens * rates["output"]
 
     @staticmethod
     def _extract_intent_name(action) -> str:
