@@ -72,6 +72,10 @@ class InMemoryDBConnection(DBConnectionBase):
             if sid not in self._turns:
                 self._turns[sid] = []
             self._turns[sid].append(turn)
+            # M-18: turn_count 갱신
+            if sid in self._sessions:
+                session = self._sessions[sid]
+                session.total_turn_count = getattr(session, "total_turn_count", 0) + 1
 
     def fetchone(self, query: str, params: tuple = ()) -> Optional[object]:
         q = query.strip().upper()
@@ -143,6 +147,8 @@ class CallbotDBRepository:
 
     def insert_turn(self, turn: ConversationTurn) -> None:
         """턴 레코드 INSERT (각 턴 완료 시 실시간 저장, RPO 1분 보장).
+
+        Also increments turn_count on the session (M-18: FR-011).
 
         Raises:
             SessionFKError: 해당 session_id의 세션이 존재하지 않을 때
