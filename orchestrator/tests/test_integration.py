@@ -59,6 +59,9 @@ class TestBasicPipelineIntegration:
 
         class MockSession:
             injection_count = 0
+            turn_count = 0
+            elapsed_minutes = 0.0
+            has_active_transaction = False
 
         class MockFilterResult:
             is_safe = True
@@ -93,6 +96,9 @@ class TestBasicPipelineIntegration:
 
         class MockSession:
             injection_count = 2
+            turn_count = 0
+            elapsed_minutes = 0.0
+            has_active_transaction = False
 
         class MockFilterResult:
             is_safe = False
