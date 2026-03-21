@@ -17,6 +17,14 @@ from callbot.session.repository import DBConnectionBase
 
 logger = logging.getLogger(__name__)
 
+# SQL injection 방지: UPDATE_SESSION에서 허용되는 컬럼 목록
+_ALLOWED_SESSION_COLUMNS: frozenset[str] = frozenset({
+    "end_time", "end_reason", "is_authenticated", "auth_method",
+    "business_turn_count", "total_turn_count", "tts_speed_factor",
+    "csat_score", "escalation_reason", "escalation_reasons",
+    "auth_attempts", "updated_at", "expires_at",
+})
+
 # psycopg2는 런타임 의존성 — import 오류를 명확히 전달
 try:
     import psycopg2
@@ -128,6 +136,12 @@ class PostgreSQLConnection(DBConnectionBase):
                     )
                 elif q.startswith("UPDATE_SESSION"):
                     session_id, updates = params[0], params[1]
+                    # SQL injection 방지: 허용 컬럼만 SET 절에 사용
+                    invalid_cols = set(updates.keys()) - _ALLOWED_SESSION_COLUMNS
+                    if invalid_cols:
+                        raise ValueError(
+                            f"Disallowed column(s) in UPDATE: {invalid_cols}"
+                        )
                     set_clauses = ", ".join(f"{k} = %({k})s" for k in updates)
                     updates["session_id"] = session_id
                     cur.execute(

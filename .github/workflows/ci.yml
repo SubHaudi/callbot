@@ -35,5 +35,8 @@ jobs:
             orchestrator/tests/ \
             llm_engine/tests/ \
             server/tests/ \
+            session/tests/ \
+            security/tests/ \
             --ignore=nlu/tests/test_bert_intent_classifier.py \
+            --ignore=session/tests/test_pg_connection_integration.py \
             -q --tb=short
