@@ -28,6 +28,8 @@ class MockSession:
         auth_module_called: bool = False,
         callback_scheduled: bool = False,
         csat_score: Optional[int] = None,
+        elapsed_minutes: float = 0.0,
+        has_active_transaction: bool = False,
     ):
         self.injection_count = injection_count
         self.is_authenticated = is_authenticated
@@ -40,6 +42,8 @@ class MockSession:
         self.auth_module_called = auth_module_called
         self.callback_scheduled = callback_scheduled
         self.csat_score = csat_score
+        self.elapsed_minutes = elapsed_minutes
+        self.has_active_transaction = has_active_transaction
 
 
 class MockDTMFResult:
@@ -626,3 +630,46 @@ class TestPIFBypassAuditLog:
         assert entry["session_id"] == "sess-003"
         assert "bypass_time" in entry
         assert entry["bypass_reason"] == "PIF_UNAVAILABLE"
+
+
+# ---------------------------------------------------------------------------
+# 테스트: process_turn 세션 제한 체크 (M-34, TASK-005)
+# ---------------------------------------------------------------------------
+
+class TestProcessTurnSessionLimits:
+    def test_turn_limit_ends_session(self):
+        """20턴 + no active tx → SESSION_END"""
+        orchestrator = ConversationOrchestrator()
+        session = MockSession(turn_count=20, has_active_transaction=False)
+        filter_result = MockFilterResult(is_safe=True)
+
+        action = orchestrator.process_turn(session, filter_result)
+        assert action.action_type == ActionType.SESSION_END
+
+    def test_turn_limit_with_active_tx_allows_extra(self):
+        """20턴 + active tx → allow_extra_turns → 정상 진행"""
+        orchestrator = ConversationOrchestrator()
+        session = MockSession(turn_count=20, has_active_transaction=True)
+        filter_result = MockFilterResult(is_safe=True)
+
+        action = orchestrator.process_turn(session, filter_result)
+        # allow_extra_turns → 정상 진행 (end_session도 escalate도 아님)
+        assert action.action_type == ActionType.PROCESS_BUSINESS
+
+    def test_normal_turn_proceeds(self):
+        """5턴 → 정상 진행"""
+        orchestrator = ConversationOrchestrator()
+        session = MockSession(turn_count=5)
+        filter_result = MockFilterResult(is_safe=True)
+
+        action = orchestrator.process_turn(session, filter_result)
+        assert action.action_type == ActionType.PROCESS_BUSINESS
+
+    def test_time_limit_ends_session(self):
+        """15분 + no active tx → SESSION_END"""
+        orchestrator = ConversationOrchestrator()
+        session = MockSession(elapsed_minutes=15.0, has_active_transaction=False)
+        filter_result = MockFilterResult(is_safe=True)
+
+        action = orchestrator.process_turn(session, filter_result)
+        assert action.action_type == ActionType.SESSION_END
