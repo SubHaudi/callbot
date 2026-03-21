@@ -65,7 +65,7 @@ def test_property1_jwt_claim_completeness(service_identity: str) -> None:
     auth = ServiceAuthenticator(mock_sm, InMemoryTokenStore())
     token = auth.issue_token(service_identity)
 
-    payload = jwt.decode(token, RSA_PUBLIC_PEM, algorithms=["RS256"])
+    payload = jwt.decode(token, RSA_PUBLIC_PEM, algorithms=["RS256"], audience="callbot-services")
     assert "sub" in payload
     assert "iat" in payload
     assert "exp" in payload
@@ -85,7 +85,7 @@ def test_property2_jwt_ttl_applied(ttl: int) -> None:
     auth = ServiceAuthenticator(mock_sm, InMemoryTokenStore(), jwt_ttl_seconds=ttl)
     token = auth.issue_token("test-service")
 
-    payload = jwt.decode(token, RSA_PUBLIC_PEM, algorithms=["RS256"])
+    payload = jwt.decode(token, RSA_PUBLIC_PEM, algorithms=["RS256"], audience="callbot-services")
     assert payload["exp"] - payload["iat"] == ttl
 
 
@@ -150,7 +150,7 @@ class TestServiceAuthenticatorUnit:
         auth = ServiceAuthenticator(mock_sm, InMemoryTokenStore())
         token = auth.issue_token("test-service")
 
-        payload = jwt.decode(token, RSA_PUBLIC_PEM, algorithms=["RS256"])
+        payload = jwt.decode(token, RSA_PUBLIC_PEM, algorithms=["RS256"], audience="callbot-services")
         assert payload["exp"] - payload["iat"] == 3600
 
     def test_tampered_jwt_raises_invalid_token(self) -> None:
@@ -211,3 +211,49 @@ class TestServiceAuthenticatorUnit:
 
         with pytest.raises(InvalidTokenError):
             auth.verify_token(fake_token)
+
+
+# ---------------------------------------------------------------------------
+# TASK-S06: JWT aud/iss 검증 테스트
+# ---------------------------------------------------------------------------
+
+
+class TestJwtAudIss:
+    """JWT audience/issuer 검증."""
+
+    def test_token_includes_iss_and_aud(self) -> None:
+        """발급된 토큰에 iss, aud 클레임 포함."""
+        mock_sm = _make_mock_sm()
+        auth = ServiceAuthenticator(mock_sm, InMemoryTokenStore())
+        token = auth.issue_token("test-svc")
+        payload = jwt.decode(token, RSA_PUBLIC_PEM, algorithms=["RS256"], audience="callbot-services")
+        assert payload["iss"] == "callbot"
+        assert payload["aud"] == "callbot-services"
+
+    def test_wrong_audience_rejected(self) -> None:
+        """잘못된 audience → InvalidTokenError."""
+        mock_sm = _make_mock_sm()
+        auth_issuer = ServiceAuthenticator(mock_sm, InMemoryTokenStore(), audience="callbot-services")
+        token = auth_issuer.issue_token("test-svc")
+
+        auth_wrong_aud = ServiceAuthenticator(mock_sm, InMemoryTokenStore(), audience="wrong-audience")
+        with pytest.raises(InvalidTokenError):
+            auth_wrong_aud.verify_token(token)
+
+    def test_wrong_issuer_rejected(self) -> None:
+        """잘못된 issuer → InvalidTokenError."""
+        mock_sm = _make_mock_sm()
+        auth_issuer = ServiceAuthenticator(mock_sm, InMemoryTokenStore(), issuer="callbot")
+        token = auth_issuer.issue_token("test-svc")
+
+        auth_wrong_iss = ServiceAuthenticator(mock_sm, InMemoryTokenStore(), issuer="evil-issuer")
+        with pytest.raises(InvalidTokenError):
+            auth_wrong_iss.verify_token(token)
+
+    def test_custom_aud_iss_roundtrip(self) -> None:
+        """커스텀 aud/iss로 발급→검증 라운드트립."""
+        mock_sm = _make_mock_sm()
+        store = InMemoryTokenStore()
+        auth = ServiceAuthenticator(mock_sm, store, issuer="my-issuer", audience="my-audience")
+        token = auth.issue_token("my-service")
+        assert auth.verify_token(token) == "my-service"
