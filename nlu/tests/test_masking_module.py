@@ -311,3 +311,24 @@ def test_response_template_masking_fallback():
     text = ResponseTemplate("masking_fallback")
     assert isinstance(text, str)
     assert len(text) > 0
+
+
+# ---------------------------------------------------------------------------
+# M-02: list/dict 필드 방어 테스트
+# ---------------------------------------------------------------------------
+
+def test_mask_handles_non_string_field_gracefully(module: MaskingModule):
+    """M-02: CustomerInfo 필드에 비문자열 값이 들어와도 에러 없이 무시한다."""
+    info = CustomerInfo(name="홍길동", phone=["010", "1234", "5678"])  # type: ignore[arg-type]
+    result = module.mask("전화번호는 01012345678입니다", info)
+    # phone은 list라서 마스킹 안 됨, name은 마스킹됨
+    assert "[전화번호]" not in result.masked_text
+    # name이 텍스트에 없으므로 마스킹 안 됨 (홍길동이 텍스트에 없음)
+    assert result.masked_text == "전화번호는 01012345678입니다"
+
+
+def test_mask_handles_dict_field_gracefully(module: MaskingModule):
+    """M-02: dict 필드도 에러 없이 무시한다."""
+    info = CustomerInfo(name={"first": "길동", "last": "홍"})  # type: ignore[arg-type]
+    result = module.mask("홍길동 고객님", info)
+    assert result.masked_text == "홍길동 고객님"

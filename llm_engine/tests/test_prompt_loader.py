@@ -1,53 +1,51 @@
-"""Property-based tests for PromptLoader — 메모리 기반 (pbt-guidelines 준수)."""
+"""callbot.llm_engine.tests.test_prompt_loader — PromptLoader 단위 테스트"""
 from __future__ import annotations
 
 import pytest
-from hypothesis import assume, given, settings
-from hypothesis import strategies as st
-
-from callbot.llm_engine.llm_engine import PromptLoader
+from callbot.llm_engine.prompt_loader import PromptLoader
 
 
-# Feature: callbot-llm-integration, Property 7: YAML 프롬프트 로드 round-trip
-# Validates: Requirements 7.2
-@given(st.dictionaries(
-    st.text(min_size=1),
-    st.text(min_size=1),
-    min_size=1,
-))
-@settings(max_examples=100)
-def test_yaml_prompt_roundtrip(data: dict) -> None:
-    """정의된 모든 intent 키에 대해 get_prompt는 해당 값을 그대로 반환한다."""
-    loader = PromptLoader.from_dict(data)
-    for key, value in data.items():
-        assert loader.get_prompt(key) == value
+def test_get_prompt_default():
+    loader = PromptLoader()
+    prompt = loader.get_prompt()
+    assert "AnyTelecom" in prompt
 
 
-# Feature: callbot-llm-integration, Property 8: YAML 미정의 intent → default fallback
-# Validates: Requirements 7.3
-@given(
-    default_value=st.text(min_size=1),
-    unknown_key=st.text(min_size=1),
-)
-@settings(max_examples=100)
-def test_yaml_undefined_intent_returns_default(default_value: str, unknown_key: str) -> None:
-    """YAML에 없는 intent 키에 대해 get_prompt는 default 키의 값을 반환한다."""
-    assume(unknown_key != "default")
-    loader = PromptLoader.from_dict({"default": default_value})
-    assert loader.get_prompt(unknown_key) == default_value
+def test_get_prompt_billing_inquiry():
+    loader = PromptLoader()
+    prompt = loader.get_prompt("BILLING_INQUIRY")
+    assert "요금" in prompt
 
 
-# 파일 로딩 단위 테스트 — 파일 I/O는 여기서만 처리
-def test_load_from_yaml_file(tmp_path) -> None:
-    """실제 YAML 파일에서 정상적으로 로드된다."""
-    yaml_file = tmp_path / "prompts.yaml"
-    yaml_file.write_text("default: 안녕하세요\nbilling_inquiry: 요금 문의입니다", encoding="utf-8")
-    loader = PromptLoader(str(yaml_file))
-    assert loader.get_prompt("default") == "안녕하세요"
-    assert loader.get_prompt("billing_inquiry") == "요금 문의입니다"
+def test_get_prompt_with_api_result():
+    loader = PromptLoader()
+    prompt = loader.get_prompt("BILLING_INQUIRY", api_result={"monthly_fee": 55000})
+    assert "55000" in prompt
+    assert "API 조회 결과" in prompt
 
 
-def test_load_missing_file_returns_empty() -> None:
-    """존재하지 않는 파일 경로는 예외 없이 빈 dict로 처리된다."""
-    loader = PromptLoader("/nonexistent/path/prompts.yaml")
-    assert loader.get_prompt("any_key") is None
+def test_get_prompt_unknown_intent_falls_back():
+    loader = PromptLoader()
+    prompt = loader.get_prompt("UNKNOWN_INTENT")
+    assert "AnyTelecom" in prompt
+
+
+def test_custom_prompts_override():
+    loader = PromptLoader(custom_prompts={"BILLING_INQUIRY": "커스텀 프롬프트"})
+    assert loader.get_prompt("BILLING_INQUIRY") == "커스텀 프롬프트"
+
+
+def test_different_intents_different_prompts():
+    """M-13: 다른 intent에 다른 프롬프트가 적용된다."""
+    loader = PromptLoader()
+    billing = loader.get_prompt("BILLING_INQUIRY")
+    data_usage = loader.get_prompt("DATA_USAGE_INQUIRY")
+    assert billing != data_usage
+
+
+def test_list_intents():
+    loader = PromptLoader()
+    intents = loader.list_intents()
+    assert "BILLING_INQUIRY" in intents
+    assert "DATA_USAGE_INQUIRY" in intents
+    assert len(intents) >= 5

@@ -28,21 +28,40 @@ class ConversationOrchestrator:
     def process_turn(self, session: Any, filter_result: Any) -> OrchestratorAction:
         """PIF FilterResult 기반 분기.
 
+        - 세션 제한(턴/시간) 초과 시 → 즉시 ESCALATE 또는 END_SESSION
         - is_safe=False AND injection_count < 2  → SYSTEM_CONTROL(재질문)
         - is_safe=False AND injection_count >= 2 → ESCALATE
         - is_safe=True                           → 의도 분류기 호출 후 분기
         """
+        # 세션 제한 확인 (M-34)
+        limit_action = self.check_session_limits(session)
+        if limit_action.action == "end_session":
+            return OrchestratorAction(
+                action_type=ActionType.SESSION_END,
+                target_component="orchestrator",
+                context={"reason": "SESSION_LIMIT"},
+            )
+        if limit_action.action == "escalate":
+            return OrchestratorAction(
+                action_type=ActionType.ESCALATE,
+                target_component="routing_engine",
+                context={"reason": "SESSION_LIMIT_EXCEEDED"},
+            )
+
         if not filter_result.is_safe:
             return self._handle_injection(session)
 
         # 안전한 입력 → 의도 분류기 호출
+        classification_result = None
         if self._intent_classifier is not None:
-            self._intent_classifier.classify(filter_result.original_text, session)
+            classification_result = self._intent_classifier.classify(
+                filter_result.original_text, session
+            )
 
         return OrchestratorAction(
             action_type=ActionType.PROCESS_BUSINESS,
             target_component="llm_engine",
-            context={},
+            context={"intent": classification_result},
         )
 
     # ------------------------------------------------------------------

@@ -239,6 +239,11 @@ def test_no_relation_for_simple_utterance(classifier: IntentClassifier, ctx: Ses
     ("빠르게 말해줘", Intent.SPEED_CONTROL),
     ("다시 말해줘", Intent.REPEAT_REQUEST),
     ("잠깐만요", Intent.WAIT_REQUEST),
+    # Phase C 추가
+    ("데이터 잔여량 알려줘", Intent.DATA_USAGE_INQUIRY),
+    ("잔여 데이터 확인해줘", Intent.DATA_USAGE_INQUIRY),
+    ("부가서비스 해지해줘", Intent.ADDON_CANCEL),
+    ("부가 해지하고 싶어요", Intent.ADDON_CANCEL),
 ])
 def test_keyword_based_intent_classification(
     classifier: IntentClassifier, ctx: SessionContext, text: str, expected_intent: Intent

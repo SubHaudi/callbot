@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 
 from callbot.business.enums import BillingOperation, CustomerDBOperation
 from callbot.business.models import APIResult
-from callbot.business.api_wrapper import ExternalSystemBase as APIWrapperSystemBase
+from callbot.business.api_wrapper import APIWrapperSystemBase
 from callbot.external.anytelecom_system import AnyTelecomExternalSystem
 
 
@@ -20,7 +20,7 @@ from callbot.external.anytelecom_system import AnyTelecomExternalSystem
 
 
 def _make_mock_http_client() -> MagicMock:
-    """Mock AnyTelecomHTTPClient (api_wrapper.ExternalSystemBase 구현체)."""
+    """Mock AnyTelecomHTTPClient (api_wrapper.APIWrapperSystemBase 구현체)."""
     mock_client = MagicMock(spec=APIWrapperSystemBase)
     mock_client.call.return_value = {"result": "ok"}
     return mock_client
