@@ -60,6 +60,22 @@ class SessionContext:
     pending_intent: Optional[Any]
     pending_classification: Optional[Any]
 
+    @property
+    def turn_count(self) -> int:
+        """총 턴 수 (turns 리스트 길이 기반)."""
+        return len(self.turns)
+
+    @property
+    def elapsed_minutes(self) -> float:
+        """세션 시작 이후 경과 시간 (분)."""
+        delta = datetime.now() - self.start_time
+        return delta.total_seconds() / 60.0
+
+    @property
+    def has_active_transaction(self) -> bool:
+        """진행 중인 다단계 플로우가 있는지."""
+        return self.pending_intent is not None
+
 
 @dataclass
 class SessionLimitStatus:
