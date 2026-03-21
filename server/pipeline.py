@@ -334,8 +334,7 @@ class TurnPipeline:
             session.pending_intent = None
             return "시스템 점검 중입니다."
 
-        # 부가서비스 이름에서 addon_id 추출 (FakeSystem 기반)
-        # 실제 구현에서는 목록 조회 후 매칭
+        # TODO: 실제 운영 시 외부 API 조회로 대체 (현재는 FakeSystem 전용 하드코딩)
         addon_map = {
             "데이터 쉐어링": "ADD-001",
             "안심 데이터": "ADD-002",
