@@ -10,7 +10,7 @@ from callbot.business.api_wrapper import (
     AlertServiceBase,
     CircuitBreaker,
     ExternalAPIWrapper,
-    ExternalSystemBase,
+    APIWrapperSystemBase,
 )
 from callbot.business.enums import APIErrorType, BillingOperation, CircuitStatus, CustomerDBOperation
 from callbot.business.models import APIError, APIResult
@@ -21,7 +21,7 @@ from callbot.business.models import APIError, APIResult
 # ---------------------------------------------------------------------------
 
 def _make_wrapper(side_effects=None, return_value=None):
-    sys_mock = MagicMock(spec=ExternalSystemBase)
+    sys_mock = MagicMock(spec=APIWrapperSystemBase)
     if side_effects is not None:
         sys_mock.call.side_effect = side_effects
     elif return_value is not None:
@@ -171,7 +171,7 @@ def test_rollback_success_on_third_attempt():
 
 def test_rollback_sends_critical_alert_on_three_failures():
     """3회 실패 시 운영팀 critical 알림 발송"""
-    sys_mock = MagicMock(spec=ExternalSystemBase)
+    sys_mock = MagicMock(spec=APIWrapperSystemBase)
     sys_mock.call.side_effect = [Exception("실패1"), Exception("실패2"), Exception("실패3")]
     alert_mock = MagicMock(spec=AlertServiceBase)
     wrapper = ExternalAPIWrapper(external_system=sys_mock, alert_service=alert_mock)
