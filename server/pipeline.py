@@ -134,23 +134,38 @@ class TurnPipeline:
         intent_name = self._extract_intent_name(action)
         self._observe_metric("nlu_duration_ms", nlu_elapsed, {"intent": intent_name})
 
+        # 비즈니스 메트릭: intent 요청 카운터
+        self._increment_metric("intent_requests_total", dimensions={"intent": intent_name})
+
         # 분기
         t_llm = time.perf_counter()
-        if action.action_type == ActionType.PROCESS_BUSINESS:
-            response_text = await self._handle_business(
-                loop, session, action, masked_text
-            )
-        elif action.action_type == ActionType.SESSION_END:
-            response_text = "이용해 주셔서 감사합니다. 좋은 하루 보내세요."
-        elif action.action_type == ActionType.SYSTEM_CONTROL:
-            response_text = action.context.get("message", "다시 한번 말씀해주시겠어요?")
-        elif action.action_type == ActionType.ESCALATE:
-            response_text = "상담원에게 전환합니다. 잠시만 기다려주세요."
-        elif action.action_type == ActionType.AUTH_REQUIRED:
-            response_text = "본인 확인이 필요합니다. 생년월일 6자리를 말씀해주세요."
-        else:
-            response_text = "처리할 수 없는 요청입니다."
-        self._record_timing("llm_step_duration_ms", t_llm)
+        try:
+            if action.action_type == ActionType.PROCESS_BUSINESS:
+                response_text = await self._handle_business(
+                    loop, session, action, masked_text
+                )
+            elif action.action_type == ActionType.SESSION_END:
+                response_text = "이용해 주셔서 감사합니다. 좋은 하루 보내세요."
+            elif action.action_type == ActionType.SYSTEM_CONTROL:
+                response_text = action.context.get("message", "다시 한번 말씀해주시겠어요?")
+            elif action.action_type == ActionType.ESCALATE:
+                response_text = "상담원에게 전환합니다. 잠시만 기다려주세요."
+            elif action.action_type == ActionType.AUTH_REQUIRED:
+                response_text = "본인 확인이 필요합니다. 생년월일 6자리를 말씀해주세요."
+            else:
+                response_text = "처리할 수 없는 요청입니다."
+            self._record_timing("llm_step_duration_ms", t_llm)
+
+            # 비즈니스 메트릭: 성공 카운터
+            self._increment_metric("intent_success_total", dimensions={
+                "intent": intent_name, "action_type": action.action_type.name
+            })
+        except Exception as e:
+            # 비즈니스 메트릭: 실패 카운터
+            self._increment_metric("intent_failure_total", dimensions={
+                "intent": intent_name, "error_type": "exception"
+            })
+            raise
 
         # total
         self._observe_metric("total_duration_ms", self._elapsed_ms(t_start), {"intent": intent_name})
@@ -486,6 +501,10 @@ class TurnPipeline:
     def _observe_metric(self, name: str, value: float, dimensions=None) -> None:
         if self._metrics is not None:
             self._metrics.observe(name, value, dimensions)
+
+    def _increment_metric(self, name: str, value: float = 1, dimensions=None) -> None:
+        if self._metrics is not None:
+            self._metrics.increment(name, value, dimensions)
 
     @staticmethod
     def _extract_intent_name(action) -> str:
