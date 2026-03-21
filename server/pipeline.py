@@ -77,6 +77,7 @@ class TurnPipeline:
         prompt_loader: Optional[Any] = None,
         metrics_collector: Optional[Any] = None,
         executor: Optional[ThreadPoolExecutor] = None,
+        intent_classifier: Optional[Any] = None,
     ) -> None:
         self._pif = pif
         self._orchestrator = orchestrator
@@ -87,6 +88,11 @@ class TurnPipeline:
         self._prompt_loader = prompt_loader
         self._metrics = metrics_collector
         self._executor = executor or _default_executor
+        # Phase E: NLU classifier DI (기본값: MockIntentClassifier)
+        if intent_classifier is None:
+            from callbot.nlu.intent_classifier import IntentClassifier, MockIntentClassifier
+            intent_classifier = IntentClassifier(model=MockIntentClassifier())
+        self._intent_classifier = intent_classifier
 
     async def process(
         self,
@@ -210,6 +216,14 @@ class TurnPipeline:
         # 다단계 플로우: pending_intent가 있으면 이전 턴의 연속
         pending = getattr(session, "pending_intent", None)
         if pending is not None:
+            # Phase E: 전환 확인 대기 상태 처리
+            pending_switch = getattr(session, "pending_switch_intent", None)
+            if pending_switch is not None:
+                return await self._handle_switch_confirm(loop, session, masked_text)
+            # Phase E: 새 인텐트 감지 → 전환 확인
+            switch_result = await self._handle_intent_switch(loop, session, masked_text)
+            if switch_result is not None:
+                return switch_result
             return await self._handle_multi_step_continuation(
                 loop, session, masked_text, pending
             )
@@ -289,6 +303,109 @@ class TurnPipeline:
             "해지할 부가서비스를 말씀해주세요.\n"
             "예: '데이터 쉐어링 해지' (취소하려면 '취소')"
         )
+
+    async def _handle_intent_switch(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        session: Any,
+        text: str,
+    ) -> Optional[str]:
+        """Phase E: 다단계 플로우 중 새 인텐트 감지 시 전환 확인.
+
+        Returns:
+            전환 확인 메시지 (새 인텐트 감지 시) 또는 None (기존 플로우 계속)
+        """
+        from callbot.nlu.intent_classifier import SessionContext as NLUSessionContext
+        from callbot.nlu.enums import SYSTEM_CONTROL_INTENTS, Intent
+
+        # 짧은 응답 (번호 선택, 네/아니오)은 기존 플로우 계속
+        stripped = text.strip()
+        if stripped.isdigit() or stripped in ("네", "아니", "아니오", "맞아", "응", "계속", "ㅇㅇ", "ㄴㄴ"):
+            return None
+
+        # NLU로 현재 발화 분류 (DI된 classifier 재사용)
+        nlu_ctx = NLUSessionContext(session_id=session.session_id, turn_count=len(getattr(session, "turns", [])))
+        result = self._intent_classifier.classify(text, nlu_ctx)
+        new_intent = result.primary_intent
+
+        # UNCLASSIFIED면 기존 플로우 계속
+        if new_intent == Intent.UNCLASSIFIED:
+            return None
+
+        # 시스템 인텐트면 즉시 처리 (전환 확인 없음) — FR-007
+        if new_intent in SYSTEM_CONTROL_INTENTS:
+            return None  # 기존 플로우의 시스템 인텐트 핸들링으로 폴스루
+
+        # 현재 플로우의 인텐트와 같거나 관련된 인텐트면 기존 플로우 계속
+        pending = getattr(session, "pending_intent", "")
+        intent_name = new_intent.value if hasattr(new_intent, "value") else str(new_intent)
+        # 직접 매칭 또는 관련 인텐트 (예: ADDON_CANCEL 플로우 중 CANCELLATION)
+        _RELATED_INTENTS = {
+            "ADDON_CANCEL": {Intent.CANCELLATION, Intent.ADDON_CANCEL},
+            "PLAN_CHANGE": {Intent.PLAN_INQUIRY, Intent.PLAN_CHANGE},
+        }
+        for flow_prefix, related in _RELATED_INTENTS.items():
+            if flow_prefix in str(pending) and new_intent in related:
+                return None
+        if intent_name in str(pending):
+            return None
+
+        # 새 인텐트 감지 → 전환 확인
+        session.pending_switch_intent = new_intent
+        current_flow = str(pending).replace("_SELECT", "").replace("_CONFIRM", "").replace("_", " ").lower()
+        new_flow = intent_name.replace("_", " ")
+        return (
+            f"현재 진행 중인 작업을 취소하고 '{new_flow}'(으)로 전환하시겠습니까?\n"
+            "'네' 또는 '아니오'로 답변해주세요."
+        )
+
+    async def _handle_switch_confirm(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        session: Any,
+        text: str,
+    ) -> str:
+        """Phase E: 인텐트 전환 확인 응답 처리."""
+        new_intent = getattr(session, "pending_switch_intent", None)
+
+        # "네"/"맞아" → 기존 플로우 취소 + 새 인텐트 시작
+        # 긍정 응답 — strip 후 정확 매칭 (부분문자열 오탐 방지)
+        _YES_WORDS = {"네", "맞아", "응", "그래", "ㅇㅇ", "예", "맞아요", "네네"}
+        stripped = text.strip()
+        if stripped in _YES_WORDS:
+            # 기존 상태 정리
+            session.pending_intent = None
+            session.pending_switch_intent = None
+            if hasattr(session, "plan_list_context"):
+                session.plan_list_context = None
+            if hasattr(session, "_multi_step_retry_count"):
+                session._multi_step_retry_count = 0
+            if hasattr(session, "_selected_plan"):
+                session._selected_plan = None
+            # 새 인텐트 라우팅
+            return await self._route_new_intent(loop, session, new_intent)
+
+        # "아니"/"계속"/"아니오" → 기존 플로우 유지
+        session.pending_switch_intent = None
+        return "기존 작업을 계속 진행합니다."
+
+    async def _route_new_intent(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        session: Any,
+        intent,
+    ) -> str:
+        """전환된 인텐트에 맞는 핸들러 라우팅."""
+        from callbot.nlu.enums import Intent
+        from callbot.business.enums import BillingOperation
+
+        if intent == Intent.PLAN_CHANGE:
+            return await self._start_plan_change(loop, session)
+        elif intent == Intent.ADDON_CANCEL:
+            return await self._start_addon_cancel(loop, session)
+        else:
+            intent_name = intent.value if hasattr(intent, "value") else str(intent)
+            return f"'{intent_name}' 관련 도움을 드리겠습니다."
 
     async def _handle_multi_step_continuation(
         self,
