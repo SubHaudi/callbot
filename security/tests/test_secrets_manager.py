@@ -98,12 +98,16 @@ _env_name_chars = st.sampled_from(
 @given(secret_name=st.text(alphabet=_env_name_chars, min_size=1, max_size=50))
 @settings(max_examples=100)
 def test_property12_env_backend_name_transform(secret_name: str) -> None:
-    """env 백엔드에서 secret_name → 대문자 + '.' → '_' 변환 후 환경변수 조회.
+    """env 백엔드에서 secret_name → 대문자 + 특수문자 '_' 변환 후 환경변수 조회.
 
     **Validates: Requirements 7.1, 7.2**
     """
-    expected_env_key = secret_name.upper().replace(".", "_")
+    expected_env_key = secret_name.upper().replace(".", "_").replace("/", "_").replace("-", "_")
     expected_value = "env-secret-value"
+
+    # 빈 문자열이나 기존 환경변수와 충돌하는 키는 스킵
+    if not expected_env_key or expected_env_key in os.environ:
+        return
 
     manager = SecretsManager(backend="env", cache_ttl_seconds=300)
 
@@ -178,3 +182,41 @@ class TestSecretsManagerUnit:
         # 존재하지 않을 환경변수 이름 사용
         with pytest.raises(SecretNotFoundError):
             manager.get_secret("nonexistent.secret.key.xyz")
+
+
+# ---------------------------------------------------------------------------
+# TASK-S07: env 키 변환 버그 수정
+# ---------------------------------------------------------------------------
+
+
+def test_env_key_converts_slash_and_dash():
+    """'callbot/jwt-signing-key' → 'CALLBOT_JWT_SIGNING_KEY'."""
+    import os
+    os.environ["CALLBOT_JWT_SIGNING_KEY"] = "test-value"
+    try:
+        sm = SecretsManager(backend="env")
+        assert sm.get_secret("callbot/jwt-signing-key") == "test-value"
+    finally:
+        del os.environ["CALLBOT_JWT_SIGNING_KEY"]
+
+
+def test_env_key_converts_dot():
+    """'callbot.config.key' → 'CALLBOT_CONFIG_KEY'."""
+    import os
+    os.environ["CALLBOT_CONFIG_KEY"] = "dot-value"
+    try:
+        sm = SecretsManager(backend="env")
+        assert sm.get_secret("callbot.config.key") == "dot-value"
+    finally:
+        del os.environ["CALLBOT_CONFIG_KEY"]
+
+
+def test_env_key_converts_all_special_chars():
+    """'app/my-service.secret' → 'APP_MY_SERVICE_SECRET'."""
+    import os
+    os.environ["APP_MY_SERVICE_SECRET"] = "all-special"
+    try:
+        sm = SecretsManager(backend="env")
+        assert sm.get_secret("app/my-service.secret") == "all-special"
+    finally:
+        del os.environ["APP_MY_SERVICE_SECRET"]
