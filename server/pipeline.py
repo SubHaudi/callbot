@@ -20,11 +20,21 @@ _executor = ThreadPoolExecutor(max_workers=20)
 
 # C-06: 정규식 기반 PII 패턴 (순서 중요: 긴 패턴 먼저)
 _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\d{4}-\d{4}-\d{4}-\d{4}"), "[카드번호]"),      # 1234-5678-1234-5678
-    (re.compile(r"\d{6}-[1-4]\d{6}"), "[주민번호]"),             # 990101-1234567
-    (re.compile(r"\d{2,3}-\d{3,4}-\d{4}"), "[전화번호]"),       # 010-1234-5678
+    # 카드번호: 하이픈/공백/점 구분 (긴 패턴 먼저)
+    (re.compile(r"\d{4}[-\s.]\d{4}[-\s.]\d{4}[-\s.]\d{4}"), "[카드번호]"),
+    (re.compile(r"\b\d{16}\b"), "[카드번호]"),                    # 연속 16자리
+    # 주민번호: 하이픈/공백/점 구분
+    (re.compile(r"\d{6}[-\s.][1-4]\d{6}"), "[주민번호]"),
+    # 전화번호: 하이픈/공백/점 구분
+    (re.compile(r"\d{2,3}[-\s.]\d{3,4}[-\s.]\d{4}"), "[전화번호]"),
     (re.compile(r"01[016789]\d{7,8}"), "[전화번호]"),            # 01012345678
 ]
+
+
+def _get_retry_count(session) -> int:
+    """세션에서 재시도 카운트를 안전하게 조회."""
+    val = getattr(session, "_multi_step_retry_count", 0)
+    return val if isinstance(val, int) else 0
 
 
 def _mask_pii_regex(text: str) -> str:
@@ -282,10 +292,18 @@ class TurnPipeline:
                     break
 
         if selected is None:
-            return "올바른 번호 또는 요금제명을 말씀해주세요."
+            retry_count = _get_retry_count(session) + 1
+            session._multi_step_retry_count = retry_count
+            if retry_count >= 3:
+                session.pending_intent = None
+                session.plan_list_context = None
+                session._multi_step_retry_count = 0
+                return "입력 오류가 반복되어 요금제 변경을 취소합니다. 다시 시도하시려면 말씀해주세요."
+            return f"올바른 번호 또는 요금제명을 말씀해주세요. ({retry_count}/3회 시도)"
 
         session.pending_intent = "PLAN_CHANGE_CONFIRM"
         session._selected_plan = selected  # 임시 저장
+        session._multi_step_retry_count = 0  # 성공 시 리셋
         return (
             f"'{selected['name']}' (월 {selected['monthly_fee']:,}원)으로 변경하시겠습니까?\n"
             "'네' 또는 '아니오'로 답변해주세요."
@@ -350,7 +368,13 @@ class TurnPipeline:
                 break
 
         if addon_id is None:
-            return "해지할 부가서비스 이름을 정확히 말씀해주세요."
+            retry_count = _get_retry_count(session) + 1
+            session._multi_step_retry_count = retry_count
+            if retry_count >= 3:
+                session.pending_intent = None
+                session._multi_step_retry_count = 0
+                return "입력 오류가 반복되어 부가서비스 해지를 취소합니다. 다시 시도하시려면 말씀해주세요."
+            return f"해지할 부가서비스 이름을 정확히 말씀해주세요. ({retry_count}/3회 시도)"
 
         result = await loop.run_in_executor(
             _executor,
@@ -360,6 +384,7 @@ class TurnPipeline:
         )
 
         session.pending_intent = None
+        session._multi_step_retry_count = 0  # 성공 시 리셋
 
         if result.is_success:
             return f"'{addon_name}' 부가서비스가 해지되었습니다."
