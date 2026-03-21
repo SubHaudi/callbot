@@ -64,6 +64,13 @@ def _get_redis() -> Optional[HealthCheckable]:
     return _redis_provider()
 
 
+def reset_health_dependencies() -> None:
+    """테스트용: 전역 DI 상태를 초기값으로 리셋."""
+    global _pg_provider, _redis_provider
+    _pg_provider = lambda: None
+    _redis_provider = lambda: None
+
+
 # ---------------------------------------------------------------------------
 # 라우터
 # ---------------------------------------------------------------------------

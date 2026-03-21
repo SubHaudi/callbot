@@ -17,7 +17,7 @@ from callbot.orchestrator.enums import ActionType
 
 logger = logging.getLogger(__name__)
 
-_executor = ThreadPoolExecutor(max_workers=20)
+_default_executor = ThreadPoolExecutor(max_workers=20)
 
 # C-06: 정규식 기반 PII 패턴 (순서 중요: 긴 패턴 먼저)
 _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
@@ -76,6 +76,7 @@ class TurnPipeline:
         pii_masker: Optional[Any] = None,
         prompt_loader: Optional[Any] = None,
         metrics_collector: Optional[Any] = None,
+        executor: Optional[ThreadPoolExecutor] = None,
     ) -> None:
         self._pif = pif
         self._orchestrator = orchestrator
@@ -85,6 +86,7 @@ class TurnPipeline:
         self._pii_masker = pii_masker
         self._prompt_loader = prompt_loader
         self._metrics = metrics_collector
+        self._executor = executor or _default_executor
 
     async def process(
         self,
@@ -99,11 +101,11 @@ class TurnPipeline:
         # 세션 조회 또는 생성
         if session_id is None:
             session = await loop.run_in_executor(
-                _executor, self._session_manager.create_session, caller_id
+                self._executor, self._session_manager.create_session, caller_id
             )
         else:
             session = await loop.run_in_executor(
-                _executor, self._session_manager.get_session, session_id
+                self._executor, self._session_manager.get_session, session_id
             )
             if session is None:
                 from callbot.session.exceptions import SessionNotFoundError
@@ -114,7 +116,7 @@ class TurnPipeline:
         masked_text = text
         if self._pii_masker is not None:
             mask_result = await loop.run_in_executor(
-                _executor, self._pii_masker.mask, text
+                self._executor, self._pii_masker.mask, text
             )
             masked_text = mask_result if isinstance(mask_result, str) else mask_result.masked_text
         # 정규식 PII 패턴 (DI masker와 무관하게 항상 적용)
@@ -126,7 +128,7 @@ class TurnPipeline:
         # PIF (마스킹된 텍스트 사용)
         t_pif = time.perf_counter()
         filter_result = await loop.run_in_executor(
-            _executor, self._pif.filter, masked_text, session.session_id
+            self._executor, self._pif.filter, masked_text, session.session_id
         )
         self._record_timing("pif_duration_ms", t_pif)
         # PIF 차단 메트릭
@@ -135,7 +137,7 @@ class TurnPipeline:
         # Orchestrator — intent 분류 포함
         t_nlu = time.perf_counter()
         action = await loop.run_in_executor(
-            _executor, self._orchestrator.process_turn, session, filter_result
+            self._executor, self._orchestrator.process_turn, session, filter_result
         )
         nlu_elapsed = self._elapsed_ms(t_nlu)
         intent_name = self._extract_intent_name(action)
@@ -242,7 +244,7 @@ class TurnPipeline:
             return "시스템 점검 중입니다. 잠시 후 다시 시도해주세요."
 
         result = await loop.run_in_executor(
-            _executor,
+            self._executor,
             self._external_system.call_billing_api,
             BillingOperation.QUERY_PLANS,
             {},
@@ -377,7 +379,7 @@ class TurnPipeline:
             return "처리 중 오류가 발생했습니다. 다시 시도해주세요."
 
         result = await loop.run_in_executor(
-            _executor,
+            self._executor,
             self._external_system.call_billing_api,
             BillingOperation.CHANGE_PLAN,
             {"plan_name": selected["name"]},
@@ -428,7 +430,7 @@ class TurnPipeline:
             return f"해지할 부가서비스 이름을 정확히 말씀해주세요. ({retry_count}/3회 시도)"
 
         result = await loop.run_in_executor(
-            _executor,
+            self._executor,
             self._external_system.call_billing_api,
             BillingOperation.CANCEL_ADDON,
             {"addon_id": addon_id},
@@ -469,7 +471,7 @@ class TurnPipeline:
         t_llm_call = time.perf_counter()
         try:
             result = await loop.run_in_executor(
-                _executor, self._llm_engine.generate, context_text, masked_text
+                self._executor, self._llm_engine.generate, context_text, masked_text
             )
             llm_elapsed = self._elapsed_ms(t_llm_call)
 
@@ -525,7 +527,7 @@ class TurnPipeline:
 
         try:
             result = await loop.run_in_executor(
-                _executor,
+                self._executor,
                 self._external_system.call_billing_api,
                 operation,
                 {},
