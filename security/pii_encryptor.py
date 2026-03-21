@@ -20,6 +20,7 @@ from callbot.security.token_mapping_store import TokenMappingStoreBase
 
 _IV_LEN = 12
 _TAG_LEN = 16
+_KEY_VERSION_LEN = 1  # 1 byte for key version prefix
 
 
 class PIIEncryptor:
@@ -34,15 +35,29 @@ class PIIEncryptor:
         token_mapping_store: TokenMappingStoreBase,
         encryption_key_secret_name: str = "callbot/pii-encryption-key",
         hmac_salt_secret_name: str = "callbot/pii-hmac-salt",
+        current_key_version: int = 1,
     ) -> None:
         self._secrets_manager = secrets_manager
         self._token_mapping_store = token_mapping_store
         self._encryption_key_secret_name = encryption_key_secret_name
         self._hmac_salt_secret_name = hmac_salt_secret_name
+        if not (0 <= current_key_version <= 255):
+            raise ValueError("key_version must be 0-255")
+        self._current_key_version = current_key_version
 
-    def _get_key(self) -> bytes:
-        """SecretsManager에서 암호화 키를 조회하고 32바이트로 변환한다."""
-        secret = self._secrets_manager.get_secret(self._encryption_key_secret_name)
+    def _get_key(self, version: int | None = None) -> bytes:
+        """SecretsManager에서 암호화 키를 조회하고 32바이트로 변환한다.
+
+        Args:
+            version: 키 버전. None이면 현재 버전 사용.
+        """
+        v = version if version is not None else self._current_key_version
+        secret_name = f"{self._encryption_key_secret_name}/v{v}"
+        try:
+            secret = self._secrets_manager.get_secret(secret_name)
+        except Exception:
+            # fallback: 버전 없는 레거시 키 이름
+            secret = self._secrets_manager.get_secret(self._encryption_key_secret_name)
         # hex 문자열(64자)이면 디코딩, 아니면 UTF-8 인코딩
         if len(secret) == 64:
             try:
@@ -63,9 +78,8 @@ class PIIEncryptor:
         Args:
             plaintext: 암호화할 평문.
             session_id: AAD(Additional Authenticated Data)로 사용할 세션 ID.
-                        None이면 AAD 없이 암호화 (하위 호환).
 
-        반환값: iv(12B) + tag(16B) + ciphertext.
+        반환값: key_version(1B) + iv(12B) + tag(16B) + ciphertext.
         """
         key = self._get_key()
         iv = os.urandom(_IV_LEN)
@@ -74,22 +88,31 @@ class PIIEncryptor:
         encrypted = aesgcm.encrypt(iv, plaintext.encode("utf-8"), aad)
         ciphertext_part = encrypted[:-_TAG_LEN]
         tag = encrypted[-_TAG_LEN:]
-        return iv + tag + ciphertext_part
+        version_byte = self._current_key_version.to_bytes(1, "big")
+        return version_byte + iv + tag + ciphertext_part
 
     def decrypt(self, ciphertext: bytes, session_id: str | None = None) -> str:
-        """AES-256-GCM 복호화. 인증 태그 검증 실패 시 DecryptionError.
+        """AES-256-GCM 복호화. key_version 헤더로 적합 키를 선택한다.
 
         Args:
-            ciphertext: 암호화된 바이너리 (iv + tag + ct).
-            session_id: 암호화 시 사용한 AAD. encrypt와 동일해야 복호화 성공.
+            ciphertext: 암호화된 바이너리.
+            session_id: 암호화 시 사용한 AAD.
 
         Raises:
             DecryptionError: 인증 태그 검증 실패 시 (AAD 불일치 포함).
         """
-        key = self._get_key()
-        iv = ciphertext[:_IV_LEN]
-        tag = ciphertext[_IV_LEN : _IV_LEN + _TAG_LEN]
-        ct = ciphertext[_IV_LEN + _TAG_LEN :]
+        # key_version 헤더 유무 판별: 새 포맷(1B prefix) vs 레거시(없음)
+        if len(ciphertext) > _IV_LEN + _TAG_LEN:
+            version = ciphertext[0]
+            remainder = ciphertext[_KEY_VERSION_LEN:]
+        else:
+            version = self._current_key_version
+            remainder = ciphertext
+
+        key = self._get_key(version)
+        iv = remainder[:_IV_LEN]
+        tag = remainder[_IV_LEN : _IV_LEN + _TAG_LEN]
+        ct = remainder[_IV_LEN + _TAG_LEN :]
         aad = session_id.encode("utf-8") if session_id else None
         aesgcm = AESGCM(key)
         try:

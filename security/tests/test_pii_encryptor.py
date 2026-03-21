@@ -23,15 +23,18 @@ from callbot.security.token_mapping_store import InMemoryTokenMappingStore
 
 # 32-byte key for AES-256
 TEST_KEY = "a" * 32  # 32 bytes when encoded to UTF-8
+TEST_KEY_V2 = "b" * 32  # different key for version 2
 TEST_HMAC_SALT = "test-hmac-salt-value"
 
 
-def _make_mock_sm(key: str = TEST_KEY, salt: str = TEST_HMAC_SALT) -> SecretsManager:
+def _make_mock_sm(key: str = TEST_KEY, salt: str = TEST_HMAC_SALT, key_v2: str = TEST_KEY_V2) -> SecretsManager:
     mock_sm = MagicMock(spec=SecretsManager)
 
     def _get_secret(name: str) -> str:
         if "hmac-salt" in name:
             return salt
+        if "/v2" in name:
+            return key_v2
         return key
 
     mock_sm.get_secret.side_effect = _get_secret
@@ -262,3 +265,55 @@ def test_encrypt_decrypt_without_aad_backward_compat():
 
     ct = encryptor.encrypt("하위호환")
     assert encryptor.decrypt(ct) == "하위호환"
+
+
+# ---------------------------------------------------------------------------
+# TASK-S04: 키 로테이션 테스트
+# ---------------------------------------------------------------------------
+
+
+def test_encrypt_includes_key_version_header():
+    """암호화 결과에 key_version 1바이트 헤더가 포함됨."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store, current_key_version=1)
+
+    ct = encryptor.encrypt("테스트")
+    assert ct[0] == 1  # version byte
+
+
+def test_v1_ciphertext_decrypted_in_v2_environment():
+    """v1 키로 암호화한 것을 v2 환경에서 복호화 성공."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+
+    # v1으로 암호화
+    enc_v1 = PIIEncryptor(mock_sm, store, current_key_version=1)
+    ct = enc_v1.encrypt("비밀 데이터")
+    assert ct[0] == 1
+
+    # v2 환경에서 복호화 (헤더에서 v1 키를 찾아야 함)
+    enc_v2 = PIIEncryptor(mock_sm, store, current_key_version=2)
+    result = enc_v2.decrypt(ct)
+    assert result == "비밀 데이터"
+
+
+def test_v2_encrypts_with_v2_header():
+    """v2 환경에서 암호화하면 key_version=2 헤더."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    enc_v2 = PIIEncryptor(mock_sm, store, current_key_version=2)
+
+    ct = enc_v2.encrypt("새 데이터")
+    assert ct[0] == 2
+
+    result = enc_v2.decrypt(ct)
+    assert result == "새 데이터"
+
+
+def test_key_version_out_of_range():
+    """key_version 0-255 범위 밖 → ValueError."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    with pytest.raises(ValueError):
+        PIIEncryptor(mock_sm, store, current_key_version=256)
