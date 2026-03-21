@@ -71,7 +71,7 @@ _ENGLISH_INJECTION_PATTERNS = _Pattern(
         r"ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)",
         r"disregard\s+(all\s+)?(previous|prior|above)",
         r"you\s+are\s+now\s+a",
-        r"act\s+as\s+(a\s+)?",
+        r"act\s+as\s+(a\s+)?\w+",
         r"pretend\s+(to\s+be|you\s+are)",
         r"reveal\s+(your|the)\s+(system\s+)?prompt",
         r"show\s+(me\s+)?(your|the)\s+(system\s+)?prompt",

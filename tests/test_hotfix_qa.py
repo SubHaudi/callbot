@@ -141,3 +141,22 @@ class TestMultiStepRetryLimit:
 
         r = self._run(pipeline.process(sid, "01012345678", "1"))
         assert "변경하시겠습니까" in r.response_text
+
+
+    def test_addon_cancel_3_retries_then_cancel(self):
+        """부가서비스 해지 잘못된 입력 3회 → 자동 취소."""
+        pipeline, sm = self._make_pipeline()
+        session = sm.create_session("01012345678")
+        sid = session.session_id
+
+        r1 = self._run(pipeline.process(sid, "01012345678", "부가서비스 해지해줘"))
+        assert "해지할 부가서비스" in r1.response_text
+
+        r2 = self._run(pipeline.process(sid, "01012345678", "없는서비스"))
+        assert "1/3" in r2.response_text
+
+        r3 = self._run(pipeline.process(sid, "01012345678", "없는서비스"))
+        assert "2/3" in r3.response_text
+
+        r4 = self._run(pipeline.process(sid, "01012345678", "없는서비스"))
+        assert "취소" in r4.response_text

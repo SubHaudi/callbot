@@ -22,7 +22,7 @@ _executor = ThreadPoolExecutor(max_workers=20)
 _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
     # 카드번호: 하이픈/공백/점 구분 (긴 패턴 먼저)
     (re.compile(r"\d{4}[-\s.]\d{4}[-\s.]\d{4}[-\s.]\d{4}"), "[카드번호]"),
-    (re.compile(r"\d{16}"), "[카드번호]"),                        # 연속 16자리
+    (re.compile(r"\b\d{16}\b"), "[카드번호]"),                    # 연속 16자리
     # 주민번호: 하이픈/공백/점 구분
     (re.compile(r"\d{6}[-\s.][1-4]\d{6}"), "[주민번호]"),
     # 전화번호: 하이픈/공백/점 구분
@@ -384,6 +384,7 @@ class TurnPipeline:
         )
 
         session.pending_intent = None
+        session._multi_step_retry_count = 0  # 성공 시 리셋
 
         if result.is_success:
             return f"'{addon_name}' 부가서비스가 해지되었습니다."
