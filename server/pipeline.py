@@ -74,6 +74,7 @@ class TurnPipeline:
         external_system: Optional[ExternalSystemProtocol] = None,
         pii_masker: Optional[Any] = None,
         prompt_loader: Optional[Any] = None,
+        metrics_collector: Optional[Any] = None,
     ) -> None:
         self._pif = pif
         self._orchestrator = orchestrator
@@ -82,6 +83,7 @@ class TurnPipeline:
         self._external_system = external_system
         self._pii_masker = pii_masker
         self._prompt_loader = prompt_loader
+        self._metrics = metrics_collector
 
     async def process(
         self,
