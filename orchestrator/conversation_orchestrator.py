@@ -36,13 +36,16 @@ class ConversationOrchestrator:
             return self._handle_injection(session)
 
         # 안전한 입력 → 의도 분류기 호출
+        classification_result = None
         if self._intent_classifier is not None:
-            self._intent_classifier.classify(filter_result.original_text, session)
+            classification_result = self._intent_classifier.classify(
+                filter_result.original_text, session
+            )
 
         return OrchestratorAction(
             action_type=ActionType.PROCESS_BUSINESS,
             target_component="llm_engine",
-            context={},
+            context={"intent": classification_result},
         )
 
     # ------------------------------------------------------------------
