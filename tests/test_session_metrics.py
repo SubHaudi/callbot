@@ -3,6 +3,7 @@
 from callbot.session.repository import CallbotDBRepository, InMemoryDBConnection
 from callbot.session.session_manager import SessionManager
 from callbot.session.session_store import InMemorySessionStore
+from callbot.session.enums import EndReason
 from callbot.monitoring.in_memory import InMemoryCollector
 
 
@@ -26,7 +27,7 @@ class TestSessionMetrics:
     def test_session_ended_counter(self):
         sm, metrics = _make()
         session = sm.create_session("010-0000-0000")
-        sm.end_session(session.session_id)
+        sm.end_session(session.session_id, EndReason.NORMAL)
         assert metrics.get_counter("session_ended_total") == 1
 
     def test_active_sessions_gauge(self):
@@ -35,5 +36,5 @@ class TestSessionMetrics:
         assert metrics.get_gauge("active_sessions") == 1
         s2 = sm.create_session("010-0000-0001")
         assert metrics.get_gauge("active_sessions") == 2
-        sm.end_session(s1.session_id)
+        sm.end_session(s1.session_id, EndReason.NORMAL)
         assert metrics.get_gauge("active_sessions") == 1

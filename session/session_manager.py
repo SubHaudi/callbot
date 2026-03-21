@@ -103,6 +103,13 @@ class SessionManager:
         )
         self._repository.insert_session(db_session)
 
+        # 세션 메트릭
+        if self._metrics is not None:
+            self._metrics.increment("session_created_total")
+            current = getattr(self, "_active_session_count", 0) + 1
+            self._active_session_count = current
+            self._metrics.set_gauge("active_sessions", current)
+
         return context
 
     def update_turn(self, session_id: str, turn: Turn) -> SessionContext:
@@ -182,6 +189,13 @@ class SessionManager:
 
         self._repository.update_session(session_id, {"end_time": datetime.now(), "end_reason": reason})
         self._store.delete(session_id)
+
+        # 세션 종료 메트릭
+        if self._metrics is not None:
+            self._metrics.increment("session_ended_total")
+            current = max(getattr(self, "_active_session_count", 1) - 1, 0)
+            self._active_session_count = current
+            self._metrics.set_gauge("active_sessions", current)
 
     def check_limits(self, session_id: str) -> SessionLimitStatus:
         """턴/시간 제한 확인.
