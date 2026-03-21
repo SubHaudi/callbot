@@ -7,6 +7,7 @@ AES-256-GCM으로 PII를 암호화하고, UUID 형태의 Masking_Token으로 참
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import uuid
 
@@ -32,10 +33,12 @@ class PIIEncryptor:
         secrets_manager: SecretsManager,
         token_mapping_store: TokenMappingStoreBase,
         encryption_key_secret_name: str = "callbot/pii-encryption-key",
+        hmac_salt_secret_name: str = "callbot/pii-hmac-salt",
     ) -> None:
         self._secrets_manager = secrets_manager
         self._token_mapping_store = token_mapping_store
         self._encryption_key_secret_name = encryption_key_secret_name
+        self._hmac_salt_secret_name = hmac_salt_secret_name
 
     def _get_key(self) -> bytes:
         """SecretsManager에서 암호화 키를 조회하고 32바이트로 변환한다."""
@@ -86,15 +89,25 @@ class PIIEncryptor:
             raise DecryptionError("Authentication tag verification failed") from exc
         return plaintext_bytes.decode("utf-8")
 
+    def _get_hmac_salt(self) -> bytes:
+        """SecretsManager에서 HMAC salt를 조회한다."""
+        salt_str = self._secrets_manager.get_secret(self._hmac_salt_secret_name)
+        return salt_str.encode("utf-8")
+
+    def _hash_pii(self, pii: str) -> str:
+        """HMAC-SHA256으로 PII를 해시한다 (salt 적용)."""
+        salt = self._get_hmac_salt()
+        return hmac.new(salt, pii.encode("utf-8"), hashlib.sha256).hexdigest()
+
     def tokenize(self, pii: str) -> str:
         """1:1 매핑: 동일 PII는 항상 동일 토큰 반환.
 
-        신규 PII는 UUID 토큰 생성 후 암호화하여 저장.
+        HMAC-SHA256 + salt로 PII를 해시하여 레인보우 테이블 공격을 방지한다.
 
         Raises:
-            SecretNotFoundError: 암호화 키 조회 실패 시.
+            SecretNotFoundError: 암호화 키 또는 HMAC salt 조회 실패 시.
         """
-        pii_hash = hashlib.sha256(pii.encode("utf-8")).hexdigest()
+        pii_hash = self._hash_pii(pii)
         existing_token = self._token_mapping_store.get_token_by_pii_hash(pii_hash)
         if existing_token is not None:
             return existing_token
