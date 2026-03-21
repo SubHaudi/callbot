@@ -132,3 +132,27 @@ class TestIntentSwitchConfirmation:
             pipeline._handle_switch_confirm(loop, session, "계속")
         )
         assert session.pending_intent == "PLAN_CHANGE_SELECT"
+
+
+class TestSystemIntentBypass:
+    """FR-007: 시스템 인텐트는 전환 확인 없이 즉시 처리."""
+
+    def test_end_call_no_confirmation(self):
+        from callbot.server.pipeline import TurnPipeline
+        pipeline = TurnPipeline(
+            pif=MagicMock(),
+            orchestrator=MagicMock(),
+            session_manager=MagicMock(),
+            llm_engine=FakeLLMEngine(),
+            external_system=MagicMock(),
+        )
+
+        session = _make_session()
+        loop = asyncio.get_event_loop()
+
+        # "종료" — 시스템 인텐트, 전환 확인 없이 None 반환
+        result = loop.run_until_complete(
+            pipeline._handle_intent_switch(loop, session, "종료해줘")
+        )
+        assert result is None
+        assert session.pending_switch_intent is None
