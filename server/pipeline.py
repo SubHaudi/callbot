@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
@@ -93,6 +94,7 @@ class TurnPipeline:
     ) -> TurnResult:
         """턴을 처리하고 결과를 반환한다."""
         loop = asyncio.get_event_loop()
+        t_start = time.perf_counter()
 
         # 세션 조회 또는 생성
         if session_id is None:
@@ -105,6 +107,7 @@ class TurnPipeline:
             )
 
         # PII 마스킹 (M-37 + C-06: DI masker + regex fallback)
+        t_pii = time.perf_counter()
         masked_text = text
         if self._pii_masker is not None:
             mask_result = await loop.run_in_executor(
@@ -113,18 +116,26 @@ class TurnPipeline:
             masked_text = mask_result if isinstance(mask_result, str) else mask_result.masked_text
         # 정규식 PII 패턴 (DI masker와 무관하게 항상 적용)
         masked_text = _mask_pii_regex(masked_text)
+        self._record_timing("pii_masking_duration_ms", t_pii)
 
         # PIF (마스킹된 텍스트 사용)
+        t_pif = time.perf_counter()
         filter_result = await loop.run_in_executor(
             _executor, self._pif.filter, masked_text, session.session_id
         )
+        self._record_timing("pif_duration_ms", t_pif)
 
         # Orchestrator — intent 분류 포함
+        t_nlu = time.perf_counter()
         action = await loop.run_in_executor(
             _executor, self._orchestrator.process_turn, session, filter_result
         )
+        nlu_elapsed = self._elapsed_ms(t_nlu)
+        intent_name = self._extract_intent_name(action)
+        self._observe_metric("nlu_duration_ms", nlu_elapsed, {"intent": intent_name})
 
         # 분기
+        t_llm = time.perf_counter()
         if action.action_type == ActionType.PROCESS_BUSINESS:
             response_text = await self._handle_business(
                 loop, session, action, masked_text
@@ -139,6 +150,10 @@ class TurnPipeline:
             response_text = "본인 확인이 필요합니다. 생년월일 6자리를 말씀해주세요."
         else:
             response_text = "처리할 수 없는 요청입니다."
+        self._record_timing("llm_step_duration_ms", t_llm)
+
+        # total
+        self._observe_metric("total_duration_ms", self._elapsed_ms(t_start), {"intent": intent_name})
 
         return TurnResult(
             session_id=session.session_id,
@@ -457,3 +472,27 @@ class TurnPipeline:
         except Exception as e:
             logger.error("Business API call failed: %s", e)
             return {"error": str(e)}
+
+    # --- Metrics helpers ---
+
+    @staticmethod
+    def _elapsed_ms(start: float) -> float:
+        return (time.perf_counter() - start) * 1000
+
+    def _record_timing(self, name: str, start: float, dimensions=None) -> None:
+        if self._metrics is not None:
+            self._metrics.observe(name, self._elapsed_ms(start), dimensions)
+
+    def _observe_metric(self, name: str, value: float, dimensions=None) -> None:
+        if self._metrics is not None:
+            self._metrics.observe(name, value, dimensions)
+
+    @staticmethod
+    def _extract_intent_name(action) -> str:
+        intent_result = action.context.get("intent") if isinstance(action.context, dict) else None
+        if intent_result is None:
+            return "UNKNOWN"
+        intent = getattr(intent_result, "primary_intent", None)
+        if intent is None:
+            return "UNKNOWN"
+        return intent.name if hasattr(intent, "name") else str(intent)
