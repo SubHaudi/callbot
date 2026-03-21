@@ -564,3 +564,252 @@ async def test_pipeline_regex_masking_applied():
     pif_call_text = mock_pif.filter.call_args[0][0]
     assert "010-1234-5678" not in pif_call_text
     assert "[전화번호]" in pif_call_text
+
+
+# ---------------------------------------------------------------------------
+# TASK-008 보강: 타임아웃, 잘못된 번호 반복
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_plan_change_invalid_selection_retry():
+    """요금제 변경: 잘못된 번호 입력 → 재입력 안내."""
+    from server.pipeline import TurnPipeline
+    from callbot.orchestrator.enums import ActionType
+    from callbot.nlu.enums import Intent
+    from callbot.external.fake_system import FakeExternalSystem
+
+    fake_ext = FakeExternalSystem()
+    mock_intent = MagicMock()
+    mock_intent.primary_intent = Intent.PLAN_CHANGE
+
+    mock_pif = MagicMock()
+    mock_pif.filter.return_value = _make_safe_filter_result()
+
+    mock_orch = MagicMock()
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS,
+        context={"intent": mock_intent},
+    )
+
+    mock_session_mgr = MagicMock()
+    session = MagicMock()
+    session.session_id = "sess-retry"
+    session.pending_intent = None
+    session.plan_list_context = None
+    mock_session_mgr.create_session.return_value = session
+
+    pipeline = TurnPipeline(
+        pif=mock_pif, orchestrator=mock_orch,
+        session_manager=mock_session_mgr, llm_engine=MagicMock(),
+        external_system=fake_ext,
+    )
+
+    # Turn 1: 목록
+    await pipeline.process(None, "010", "요금제 변경")
+
+    # Turn 2: 잘못된 번호
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS, context={"intent": None},
+    )
+    result = await pipeline.process(None, "010", "99")
+    assert "올바른" in result.response_text
+    # pending은 유지
+    assert session.pending_intent == "PLAN_CHANGE_SELECT"
+
+
+@pytest.mark.asyncio
+async def test_plan_change_confirm_reject():
+    """요금제 변경 Turn 3에서 '아니오' → 취소."""
+    from server.pipeline import TurnPipeline
+    from callbot.orchestrator.enums import ActionType
+    from callbot.nlu.enums import Intent
+    from callbot.external.fake_system import FakeExternalSystem
+
+    fake_ext = FakeExternalSystem()
+    mock_intent = MagicMock()
+    mock_intent.primary_intent = Intent.PLAN_CHANGE
+
+    mock_pif = MagicMock()
+    mock_pif.filter.return_value = _make_safe_filter_result()
+
+    mock_orch = MagicMock()
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS,
+        context={"intent": mock_intent},
+    )
+
+    mock_session_mgr = MagicMock()
+    session = MagicMock()
+    session.session_id = "sess-reject"
+    session.pending_intent = None
+    session.plan_list_context = None
+    mock_session_mgr.create_session.return_value = session
+
+    pipeline = TurnPipeline(
+        pif=mock_pif, orchestrator=mock_orch,
+        session_manager=mock_session_mgr, llm_engine=MagicMock(),
+        external_system=fake_ext,
+    )
+
+    # Turn 1
+    await pipeline.process(None, "010", "요금제 변경")
+    # Turn 2: 선택
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS, context={"intent": None},
+    )
+    await pipeline.process(None, "010", "1")
+    # Turn 3: 거절
+    result = await pipeline.process(None, "010", "아니오")
+    assert "취소" in result.response_text
+    assert session.pending_intent is None
+
+
+# ---------------------------------------------------------------------------
+# TASK-009 보강: 부가서비스 중간 취소, 인식 불가
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_addon_cancel_mid_flow_cancel():
+    """부가서비스 해지 중 '취소' → 플로우 종료."""
+    from server.pipeline import TurnPipeline
+    from callbot.orchestrator.enums import ActionType
+    from callbot.nlu.enums import Intent
+    from callbot.external.fake_system import FakeExternalSystem
+
+    fake_ext = FakeExternalSystem()
+    mock_intent = MagicMock()
+    mock_intent.primary_intent = Intent.ADDON_CANCEL
+
+    mock_pif = MagicMock()
+    mock_pif.filter.return_value = _make_safe_filter_result()
+
+    mock_orch = MagicMock()
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS,
+        context={"intent": mock_intent},
+    )
+
+    mock_session_mgr = MagicMock()
+    session = MagicMock()
+    session.session_id = "sess-addon-cancel"
+    session.pending_intent = None
+    mock_session_mgr.create_session.return_value = session
+
+    pipeline = TurnPipeline(
+        pif=mock_pif, orchestrator=mock_orch,
+        session_manager=mock_session_mgr, llm_engine=MagicMock(),
+        external_system=fake_ext,
+    )
+
+    # Turn 1
+    await pipeline.process(None, "010", "부가서비스 해지")
+    assert session.pending_intent == "ADDON_CANCEL_SELECT"
+
+    # Turn 2: 취소
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS, context={"intent": None},
+    )
+    result = await pipeline.process(None, "010", "취소")
+    assert "취소" in result.response_text
+    assert session.pending_intent is None
+
+
+@pytest.mark.asyncio
+async def test_addon_cancel_unrecognized_name():
+    """부가서비스 인식 불가 이름 → 재입력 안내."""
+    from server.pipeline import TurnPipeline
+    from callbot.orchestrator.enums import ActionType
+    from callbot.nlu.enums import Intent
+    from callbot.external.fake_system import FakeExternalSystem
+
+    fake_ext = FakeExternalSystem()
+    mock_intent = MagicMock()
+    mock_intent.primary_intent = Intent.ADDON_CANCEL
+
+    mock_pif = MagicMock()
+    mock_pif.filter.return_value = _make_safe_filter_result()
+
+    mock_orch = MagicMock()
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS,
+        context={"intent": mock_intent},
+    )
+
+    mock_session_mgr = MagicMock()
+    session = MagicMock()
+    session.session_id = "sess-addon-unknown"
+    session.pending_intent = None
+    mock_session_mgr.create_session.return_value = session
+
+    pipeline = TurnPipeline(
+        pif=mock_pif, orchestrator=mock_orch,
+        session_manager=mock_session_mgr, llm_engine=MagicMock(),
+        external_system=fake_ext,
+    )
+
+    # Turn 1
+    await pipeline.process(None, "010", "부가서비스 해지")
+
+    # Turn 2: 존재하지 않는 이름
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.PROCESS_BUSINESS, context={"intent": None},
+    )
+    result = await pipeline.process(None, "010", "없는서비스 해지")
+    assert "정확히" in result.response_text
+
+
+# ---------------------------------------------------------------------------
+# TASK-010 보강: 복합 PII 패턴
+# ---------------------------------------------------------------------------
+
+def test_mask_pii_regex_multiple_patterns():
+    """복합 PII: 전화번호 + 주민번호 동시."""
+    from server.pipeline import _mask_pii_regex
+    text = "전화 010-1234-5678, 주민 990101-1234567"
+    result = _mask_pii_regex(text)
+    assert "010-1234-5678" not in result
+    assert "990101-1234567" not in result
+    assert "[전화번호]" in result
+    assert "[주민번호]" in result
+
+
+def test_mask_pii_regex_no_false_positive_on_amount():
+    """금액은 마스킹하지 않는다."""
+    from server.pipeline import _mask_pii_regex
+    text = "이번 달 요금은 55,000원입니다"
+    assert _mask_pii_regex(text) == text
+
+
+# ---------------------------------------------------------------------------
+# TASK-005 보강: extra_turns 시나리오
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_session_limit_extra_turns_escalate():
+    """20턴 + active tx + extra 2회 사용 → ESCALATE."""
+    from server.pipeline import TurnPipeline
+    from callbot.orchestrator.enums import ActionType
+
+    mock_pif = MagicMock()
+    mock_pif.filter.return_value = _make_safe_filter_result()
+
+    mock_orch = MagicMock()
+    mock_orch.process_turn.return_value = MagicMock(
+        action_type=ActionType.ESCALATE,
+        context={"reason": "SESSION_LIMIT_EXCEEDED"},
+    )
+
+    mock_session_mgr = MagicMock()
+    session = MagicMock()
+    session.session_id = "sess-extra"
+    session.pending_intent = None
+    mock_session_mgr.create_session.return_value = session
+
+    pipeline = TurnPipeline(
+        pif=mock_pif, orchestrator=mock_orch,
+        session_manager=mock_session_mgr, llm_engine=MagicMock(),
+    )
+
+    result = await pipeline.process(None, "010", "요금 조회")
+    assert result.action_type == "ESCALATE"
+    assert "상담원" in result.response_text

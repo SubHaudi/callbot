@@ -673,3 +673,36 @@ class TestProcessTurnSessionLimits:
 
         action = orchestrator.process_turn(session, filter_result)
         assert action.action_type == ActionType.SESSION_END
+
+
+class TestProcessTurnSessionLimitsExtended:
+    def test_extra_turns_with_active_tx_escalates(self):
+        """22턴 + active tx + extra 2회 → ESCALATE"""
+        orchestrator = ConversationOrchestrator()
+        session = MockSession(
+            turn_count=22, has_active_transaction=True,
+        )
+        session.extra_turns_used = 2
+        filter_result = MockFilterResult(is_safe=True)
+
+        action = orchestrator.process_turn(session, filter_result)
+        assert action.action_type == ActionType.ESCALATE
+
+    def test_warn_at_18_turns(self):
+        """18턴 → warn → 정상 진행"""
+        orchestrator = ConversationOrchestrator()
+        session = MockSession(turn_count=18)
+        filter_result = MockFilterResult(is_safe=True)
+
+        action = orchestrator.process_turn(session, filter_result)
+        # warn은 진행을 막지 않음
+        assert action.action_type == ActionType.PROCESS_BUSINESS
+
+    def test_time_limit_with_active_tx_allows_extra(self):
+        """15분 + active tx → allow_extra → 정상 진행"""
+        orchestrator = ConversationOrchestrator()
+        session = MockSession(elapsed_minutes=15.0, has_active_transaction=True)
+        filter_result = MockFilterResult(is_safe=True)
+
+        action = orchestrator.process_turn(session, filter_result)
+        assert action.action_type == ActionType.PROCESS_BUSINESS
