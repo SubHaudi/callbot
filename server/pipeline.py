@@ -117,6 +117,8 @@ class TurnPipeline:
         # 정규식 PII 패턴 (DI masker와 무관하게 항상 적용)
         masked_text = _mask_pii_regex(masked_text)
         self._record_timing("pii_masking_duration_ms", t_pii)
+        # PII 탐지 메트릭
+        self._record_pii_detections(text, masked_text)
 
         # PIF (마스킹된 텍스트 사용)
         t_pif = time.perf_counter()
@@ -124,6 +126,8 @@ class TurnPipeline:
             _executor, self._pif.filter, masked_text, session.session_id
         )
         self._record_timing("pif_duration_ms", t_pif)
+        # PIF 차단 메트릭
+        self._record_injection_detections(filter_result)
 
         # Orchestrator — intent 분류 포함
         t_nlu = time.perf_counter()
@@ -505,6 +509,27 @@ class TurnPipeline:
     def _increment_metric(self, name: str, value: float = 1, dimensions=None) -> None:
         if self._metrics is not None:
             self._metrics.increment(name, value, dimensions)
+
+    def _record_pii_detections(self, original: str, masked: str) -> None:
+        """Count PII detections by type."""
+        if self._metrics is None:
+            return
+        _PII_TYPE_MAP = {
+            "[카드번호]": "card",
+            "[주민번호]": "ssn",
+            "[전화번호]": "phone",
+        }
+        for marker, pii_type in _PII_TYPE_MAP.items():
+            count = masked.count(marker) - original.count(marker)
+            if count > 0:
+                self._increment_metric("pii_detected_total", count, {"pii_type": pii_type})
+
+    def _record_injection_detections(self, filter_result) -> None:
+        """Count injection blocks by pattern name."""
+        if self._metrics is None or filter_result.is_safe:
+            return
+        for pattern_name in filter_result.detected_patterns:
+            self._increment_metric("injection_blocked_total", 1, {"pattern_name": pattern_name})
 
     @staticmethod
     def _extract_intent_name(action) -> str:
