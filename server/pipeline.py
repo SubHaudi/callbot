@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
@@ -16,6 +17,21 @@ from callbot.orchestrator.enums import ActionType
 logger = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=20)
+
+# C-06: 정규식 기반 PII 패턴 (순서 중요: 긴 패턴 먼저)
+_PII_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\d{4}-\d{4}-\d{4}-\d{4}"), "[카드번호]"),      # 1234-5678-1234-5678
+    (re.compile(r"\d{6}-[1-4]\d{6}"), "[주민번호]"),             # 990101-1234567
+    (re.compile(r"\d{2,3}-\d{3,4}-\d{4}"), "[전화번호]"),       # 010-1234-5678
+    (re.compile(r"01[016789]\d{7,8}"), "[전화번호]"),            # 01012345678
+]
+
+
+def _mask_pii_regex(text: str) -> str:
+    """정규식 기반 PII 마스킹. CustomerInfo 없이도 작동."""
+    for pattern, replacement in _PII_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 @dataclass
@@ -74,13 +90,15 @@ class TurnPipeline:
                 _executor, self._session_manager._store.load, session_id
             )
 
-        # PII 마스킹 (M-37)
+        # PII 마스킹 (M-37 + C-06: DI masker + regex fallback)
         masked_text = text
         if self._pii_masker is not None:
             mask_result = await loop.run_in_executor(
                 _executor, self._pii_masker.mask, text
             )
             masked_text = mask_result if isinstance(mask_result, str) else mask_result.masked_text
+        # 정규식 PII 패턴 (DI masker와 무관하게 항상 적용)
+        masked_text = _mask_pii_regex(masked_text)
 
         # PIF (마스킹된 텍스트 사용)
         filter_result = await loop.run_in_executor(
