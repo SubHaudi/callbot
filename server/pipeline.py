@@ -63,6 +63,7 @@ class TurnPipeline:
         llm_engine: Any,
         external_system: Optional[ExternalSystemProtocol] = None,
         pii_masker: Optional[Any] = None,
+        prompt_loader: Optional[Any] = None,
     ) -> None:
         self._pif = pif
         self._orchestrator = orchestrator
@@ -70,6 +71,7 @@ class TurnPipeline:
         self._llm_engine = llm_engine
         self._external_system = external_system
         self._pii_masker = pii_masker
+        self._prompt_loader = prompt_loader
 
     async def process(
         self,
@@ -172,8 +174,9 @@ class TurnPipeline:
                 loop, intent_result
             )
 
+        intent_name = intent.name if intent else None
         return await self._generate_llm_response(
-            loop, masked_text, api_result_data
+            loop, masked_text, api_result_data, intent_name=intent_name
         )
 
     async def _start_plan_change(
@@ -369,17 +372,23 @@ class TurnPipeline:
         loop: asyncio.AbstractEventLoop,
         masked_text: str,
         api_result_data: Optional[dict],
+        intent_name: Optional[str] = None,
     ) -> str:
         """LLM 응답 생성 (공통)."""
-        system_prompt = (
-            "당신은 AnyTelecom 고객센터 AI 상담사입니다. "
-            "고객의 요청에 친절하고 정확하게 답변하세요."
-        )
-
-        if api_result_data is not None:
-            context_text = f"{system_prompt}\n\n[API 조회 결과]\n{api_result_data}"
+        if self._prompt_loader is not None:
+            context_text = self._prompt_loader.get_prompt(
+                intent_name=intent_name,
+                api_result=api_result_data,
+            )
         else:
-            context_text = system_prompt
+            system_prompt = (
+                "당신은 AnyTelecom 고객센터 AI 상담사입니다. "
+                "고객의 요청에 친절하고 정확하게 답변하세요."
+            )
+            if api_result_data is not None:
+                context_text = f"{system_prompt}\n\n[API 조회 결과]\n{api_result_data}"
+            else:
+                context_text = system_prompt
 
         return await loop.run_in_executor(
             _executor, self._llm_engine.generate, context_text, masked_text
