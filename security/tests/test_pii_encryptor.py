@@ -5,6 +5,7 @@ Property 6~9 (Hypothesis) + 단위 테스트 3개.
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,11 +23,21 @@ from callbot.security.token_mapping_store import InMemoryTokenMappingStore
 
 # 32-byte key for AES-256
 TEST_KEY = "a" * 32  # 32 bytes when encoded to UTF-8
+TEST_KEY_V2 = "b" * 32  # different key for version 2
+TEST_HMAC_SALT = "test-hmac-salt-value"
 
 
-def _make_mock_sm(key: str = TEST_KEY) -> SecretsManager:
+def _make_mock_sm(key: str = TEST_KEY, salt: str = TEST_HMAC_SALT, key_v2: str = TEST_KEY_V2) -> SecretsManager:
     mock_sm = MagicMock(spec=SecretsManager)
-    mock_sm.get_secret.return_value = key
+
+    def _get_secret(name: str) -> str:
+        if "hmac-salt" in name:
+            return salt
+        if "/v2" in name:
+            return key_v2
+        return key
+
+    mock_sm.get_secret.side_effect = _get_secret
     return mock_sm
 
 
@@ -156,3 +167,177 @@ class TestPIIEncryptorUnit:
 
         with pytest.raises(ValueError, match="32 bytes"):
             encryptor.encrypt("some-pii")
+
+
+# ---------------------------------------------------------------------------
+# TASK-S01: HMAC salt 테스트
+# ---------------------------------------------------------------------------
+
+
+def test_hash_pii_uses_hmac_not_plain_sha256():
+    """HMAC+salt 해시가 plain SHA-256과 다름을 검증."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    pii = "010-1234-5678"
+    hmac_hash = encryptor._hash_pii(pii)
+    plain_hash = hashlib.sha256(pii.encode("utf-8")).hexdigest()
+    assert hmac_hash != plain_hash
+
+
+def test_different_salt_produces_different_hash():
+    """salt 변경 시 동일 PII의 해시가 달라짐을 검증."""
+    store = InMemoryTokenMappingStore()
+    sm1 = _make_mock_sm(salt="salt-alpha")
+    sm2 = _make_mock_sm(salt="salt-beta")
+    enc1 = PIIEncryptor(sm1, store)
+    enc2 = PIIEncryptor(sm2, store)
+
+    pii = "990101-1234567"
+    assert enc1._hash_pii(pii) != enc2._hash_pii(pii)
+
+
+def test_tokenize_with_hmac_roundtrip():
+    """HMAC 해시 기반 tokenize → detokenize 라운드트립."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    token = encryptor.tokenize("홍길동")
+    assert encryptor.detokenize(token) == "홍길동"
+
+
+def test_tokenize_same_pii_same_token_with_hmac():
+    """HMAC 기반에서도 동일 PII → 동일 토큰 보장."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    t1 = encryptor.tokenize("010-9876-5432")
+    t2 = encryptor.tokenize("010-9876-5432")
+    assert t1 == t2
+
+
+# ---------------------------------------------------------------------------
+# TASK-S02: AAD (session_id) 바인딩 테스트
+# ---------------------------------------------------------------------------
+
+
+def test_encrypt_decrypt_with_aad():
+    """session_id AAD로 암호화 → 동일 session_id로 복호화 성공."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    ct = encryptor.encrypt("비밀 데이터", session_id="sess-001")
+    result = encryptor.decrypt(ct, session_id="sess-001")
+    assert result == "비밀 데이터"
+
+
+def test_decrypt_with_wrong_aad_fails():
+    """다른 session_id로 복호화 시도 → DecryptionError."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    ct = encryptor.encrypt("비밀 데이터", session_id="sess-001")
+    with pytest.raises(DecryptionError):
+        encryptor.decrypt(ct, session_id="sess-OTHER")
+
+
+def test_decrypt_without_aad_when_encrypted_with_aad_fails():
+    """AAD로 암호화한 것을 AAD 없이 복호화 → DecryptionError."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    ct = encryptor.encrypt("비밀 데이터", session_id="sess-001")
+    with pytest.raises(DecryptionError):
+        encryptor.decrypt(ct, session_id=None)
+
+
+def test_encrypt_decrypt_without_aad_backward_compat():
+    """AAD 없이 암호화/복호화 — 하위 호환성."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store)
+
+    ct = encryptor.encrypt("하위호환")
+    assert encryptor.decrypt(ct) == "하위호환"
+
+
+# ---------------------------------------------------------------------------
+# TASK-S04: 키 로테이션 테스트
+# ---------------------------------------------------------------------------
+
+
+def test_encrypt_includes_magic_and_key_version_header():
+    """암호화 결과에 magic byte + key_version 헤더가 포함됨."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store, current_key_version=1)
+
+    ct = encryptor.encrypt("테스트")
+    assert ct[0] == 0xCB  # magic byte
+    assert ct[1] == 1     # version byte
+
+
+def test_v1_ciphertext_decrypted_in_v2_environment():
+    """v1 키로 암호화한 것을 v2 환경에서 복호화 성공."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+
+    # v1으로 암호화
+    enc_v1 = PIIEncryptor(mock_sm, store, current_key_version=1)
+    ct = enc_v1.encrypt("비밀 데이터")
+    assert ct[0] == 0xCB
+    assert ct[1] == 1
+
+    # v2 환경에서 복호화 (헤더에서 v1 키를 찾아야 함)
+    enc_v2 = PIIEncryptor(mock_sm, store, current_key_version=2)
+    result = enc_v2.decrypt(ct)
+    assert result == "비밀 데이터"
+
+
+def test_v2_encrypts_with_v2_header():
+    """v2 환경에서 암호화하면 key_version=2 헤더."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    enc_v2 = PIIEncryptor(mock_sm, store, current_key_version=2)
+
+    ct = enc_v2.encrypt("새 데이터")
+    assert ct[0] == 0xCB
+    assert ct[1] == 2
+
+    result = enc_v2.decrypt(ct)
+    assert result == "새 데이터"
+
+
+def test_key_version_out_of_range():
+    """key_version 0-255 범위 밖 → ValueError."""
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    with pytest.raises(ValueError):
+        PIIEncryptor(mock_sm, store, current_key_version=256)
+
+
+def test_legacy_ciphertext_without_magic_byte():
+    """매직 바이트 없는 레거시 암호문 복호화 성공."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    import os
+
+    key = TEST_KEY.encode("utf-8")  # 32 bytes
+    iv = os.urandom(12)
+    aesgcm = AESGCM(key)
+    encrypted = aesgcm.encrypt(iv, "레거시 데이터".encode("utf-8"), None)
+    ct_part = encrypted[:-16]
+    tag = encrypted[-16:]
+    legacy_ct = iv + tag + ct_part  # 레거시 포맷: iv + tag + ct (매직 바이트 없음)
+
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store, current_key_version=1)
+
+    result = encryptor.decrypt(legacy_ct)
+    assert result == "레거시 데이터"

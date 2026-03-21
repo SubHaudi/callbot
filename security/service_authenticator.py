@@ -18,9 +18,11 @@ from callbot.security.token_store import TokenStoreBase
 
 
 class ServiceAuthenticator:
-    """HMAC-SHA256 JWT를 발급·검증·폐기하는 인증 컴포넌트.
+    """RS256 (비대칭) JWT를 발급·검증·폐기하는 인증 컴포넌트.
 
-    생성자 주입으로 SecretsManager와 TokenStoreBase 구현체를 교체할 수 있다.
+    - 발급: private key로 서명
+    - 검증: public key로 검증 (서비스가 signing key를 알 필요 없음)
+    - 생성자 주입으로 SecretsManager와 TokenStoreBase 구현체를 교체할 수 있다.
     """
 
     def __init__(
@@ -28,12 +30,18 @@ class ServiceAuthenticator:
         secrets_manager: SecretsManager,
         token_store: TokenStoreBase,
         jwt_ttl_seconds: int = 3600,
-        signing_key_secret_name: str = "callbot/jwt-signing-key",
+        private_key_secret_name: str = "callbot/jwt-private-key",
+        public_key_secret_name: str = "callbot/jwt-public-key",
+        issuer: str = "callbot",
+        audience: str = "callbot-services",
     ) -> None:
         self._secrets_manager = secrets_manager
         self._token_store = token_store
         self._jwt_ttl_seconds = jwt_ttl_seconds
-        self._signing_key_secret_name = signing_key_secret_name
+        self._private_key_secret_name = private_key_secret_name
+        self._public_key_secret_name = public_key_secret_name
+        self._issuer = issuer
+        self._audience = audience
 
     @classmethod
     def from_env(
@@ -52,16 +60,16 @@ class ServiceAuthenticator:
             jwt_ttl_seconds=ttl,
         )
 
-    def _get_signing_key(self) -> str:
-        """SecretsManager에서 서명 키를 조회한다.
+    def _get_private_key(self) -> str:
+        """SecretsManager에서 RSA private key를 조회한다."""
+        return self._secrets_manager.get_secret(self._private_key_secret_name)
 
-        Raises:
-            SecretNotFoundError: 서명 키 조회 실패 시
-        """
-        return self._secrets_manager.get_secret(self._signing_key_secret_name)
+    def _get_public_key(self) -> str:
+        """SecretsManager에서 RSA public key를 조회한다."""
+        return self._secrets_manager.get_secret(self._public_key_secret_name)
 
     def issue_token(self, service_identity: str) -> str:
-        """HMAC-SHA256 서명 JWT를 발급한다.
+        """RS256 서명 JWT를 발급한다.
 
         Args:
             service_identity: sub 클레임에 포함할 서비스 식별자.
@@ -70,17 +78,19 @@ class ServiceAuthenticator:
             인코딩된 JWT 문자열.
 
         Raises:
-            SecretNotFoundError: 서명 키 조회 실패 시
+            SecretNotFoundError: private key 조회 실패 시
         """
-        signing_key = self._get_signing_key()
+        private_key = self._get_private_key()
         now = int(time.time())
         payload = {
             "sub": service_identity,
             "iat": now,
             "exp": now + self._jwt_ttl_seconds,
             "jti": str(uuid.uuid4()),
+            "iss": self._issuer,
+            "aud": self._audience,
         }
-        return jwt.encode(payload, signing_key, algorithm="HS256")
+        return jwt.encode(payload, private_key, algorithm="RS256")
 
     def verify_token(self, token: str) -> str:
         """JWT를 검증하고 service_identity(sub)를 반환한다.
@@ -98,17 +108,26 @@ class ServiceAuthenticator:
             TokenExpiredError: JWT 만료
             RevokedTokenError: 폐기된 JWT
         """
-        signing_key = self._get_signing_key()
+        public_key = self._get_public_key()
         try:
             payload = jwt.decode(
                 token,
-                signing_key,
-                algorithms=["HS256"],
-                options={"require": ["sub", "iat", "exp", "jti"]},
+                public_key,
+                algorithms=["RS256"],
+                audience=self._audience,
+                issuer=self._issuer,
+                options={"require": ["sub", "iat", "exp", "jti", "iss", "aud"]},
             )
         except jwt.ExpiredSignatureError as exc:
             raise TokenExpiredError("Token has expired") from exc
-        except (jwt.InvalidSignatureError, jwt.DecodeError, jwt.MissingRequiredClaimError) as exc:
+        except (
+            jwt.InvalidSignatureError,
+            jwt.DecodeError,
+            jwt.MissingRequiredClaimError,
+            jwt.InvalidAlgorithmError,
+            jwt.InvalidAudienceError,
+            jwt.InvalidIssuerError,
+        ) as exc:
             raise InvalidTokenError(f"Invalid token: {exc}") from exc
 
         jti = payload["jti"]
@@ -129,15 +148,23 @@ class ServiceAuthenticator:
         Raises:
             InvalidTokenError: 토큰 디코딩 실패 시
         """
-        signing_key = self._get_signing_key()
+        public_key = self._get_public_key()
         try:
             payload = jwt.decode(
                 token,
-                signing_key,
-                algorithms=["HS256"],
+                public_key,
+                algorithms=["RS256"],
+                audience=self._audience,
+                issuer=self._issuer,
                 options={"verify_exp": False},
             )
-        except (jwt.InvalidSignatureError, jwt.DecodeError) as exc:
+        except (
+            jwt.InvalidSignatureError,
+            jwt.DecodeError,
+            jwt.InvalidAlgorithmError,
+            jwt.InvalidAudienceError,
+            jwt.InvalidIssuerError,
+        ) as exc:
             raise InvalidTokenError(f"Invalid token: {exc}") from exc
 
         self._token_store.revoke(payload["jti"], float(payload["exp"]))

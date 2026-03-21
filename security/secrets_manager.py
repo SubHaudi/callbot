@@ -106,7 +106,7 @@ class SecretsManager:
         예: "callbot/jwt-signing-key" → "CALLBOT/JWT-SIGNING-KEY" → 실제로는
             "CALLBOT/JWT-SIGNING-KEY".upper().replace(".", "_")
         """
-        env_key = secret_name.upper().replace(".", "_")
+        env_key = secret_name.upper().replace(".", "_").replace("/", "_").replace("-", "_")
         value = os.environ.get(env_key)
         if value is None:
             raise SecretNotFoundError(
