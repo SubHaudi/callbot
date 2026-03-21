@@ -26,9 +26,11 @@ class SessionManager:
     WARNING_TURNS = 18
     WARNING_MINUTES = 13.0
 
-    def __init__(self, repository: CallbotDBRepository, session_store: SessionStoreBase) -> None:
+    def __init__(self, repository: CallbotDBRepository, session_store: SessionStoreBase,
+                 metrics_collector=None) -> None:
         self._repository = repository
         self._store = session_store
+        self._metrics = metrics_collector
 
     def _get_context(self, session_id: str) -> SessionContext:
         """SessionStoreBase.load()로 세션 조회. 없으면 SessionNotFoundError."""
