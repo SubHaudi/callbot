@@ -121,6 +121,11 @@ class MockIntentClassifier(IntentClassifierBase):
         )
 
     def _match_primary_intent(self, text: str) -> Intent:
+        # Phase E: 정규식 패턴 우선 매칭
+        for patterns, intent in _PATTERN_RULES:
+            if any(p.search(text) for p in patterns):
+                return intent
+        # 폴백: 기존 키워드 매칭
         for keywords, intent in _KEYWORD_RULES:
             if any(kw in text for kw in keywords):
                 return intent
