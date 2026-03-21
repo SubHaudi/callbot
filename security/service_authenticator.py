@@ -158,7 +158,13 @@ class ServiceAuthenticator:
                 issuer=self._issuer,
                 options={"verify_exp": False},
             )
-        except (jwt.InvalidSignatureError, jwt.DecodeError) as exc:
+        except (
+            jwt.InvalidSignatureError,
+            jwt.DecodeError,
+            jwt.InvalidAlgorithmError,
+            jwt.InvalidAudienceError,
+            jwt.InvalidIssuerError,
+        ) as exc:
             raise InvalidTokenError(f"Invalid token: {exc}") from exc
 
         self._token_store.revoke(payload["jti"], float(payload["exp"]))

@@ -272,14 +272,15 @@ def test_encrypt_decrypt_without_aad_backward_compat():
 # ---------------------------------------------------------------------------
 
 
-def test_encrypt_includes_key_version_header():
-    """암호화 결과에 key_version 1바이트 헤더가 포함됨."""
+def test_encrypt_includes_magic_and_key_version_header():
+    """암호화 결과에 magic byte + key_version 헤더가 포함됨."""
     mock_sm = _make_mock_sm()
     store = InMemoryTokenMappingStore()
     encryptor = PIIEncryptor(mock_sm, store, current_key_version=1)
 
     ct = encryptor.encrypt("테스트")
-    assert ct[0] == 1  # version byte
+    assert ct[0] == 0xCB  # magic byte
+    assert ct[1] == 1     # version byte
 
 
 def test_v1_ciphertext_decrypted_in_v2_environment():
@@ -290,7 +291,8 @@ def test_v1_ciphertext_decrypted_in_v2_environment():
     # v1으로 암호화
     enc_v1 = PIIEncryptor(mock_sm, store, current_key_version=1)
     ct = enc_v1.encrypt("비밀 데이터")
-    assert ct[0] == 1
+    assert ct[0] == 0xCB
+    assert ct[1] == 1
 
     # v2 환경에서 복호화 (헤더에서 v1 키를 찾아야 함)
     enc_v2 = PIIEncryptor(mock_sm, store, current_key_version=2)
@@ -305,7 +307,8 @@ def test_v2_encrypts_with_v2_header():
     enc_v2 = PIIEncryptor(mock_sm, store, current_key_version=2)
 
     ct = enc_v2.encrypt("새 데이터")
-    assert ct[0] == 2
+    assert ct[0] == 0xCB
+    assert ct[1] == 2
 
     result = enc_v2.decrypt(ct)
     assert result == "새 데이터"
@@ -317,3 +320,24 @@ def test_key_version_out_of_range():
     store = InMemoryTokenMappingStore()
     with pytest.raises(ValueError):
         PIIEncryptor(mock_sm, store, current_key_version=256)
+
+
+def test_legacy_ciphertext_without_magic_byte():
+    """매직 바이트 없는 레거시 암호문 복호화 성공."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    import os
+
+    key = TEST_KEY.encode("utf-8")  # 32 bytes
+    iv = os.urandom(12)
+    aesgcm = AESGCM(key)
+    encrypted = aesgcm.encrypt(iv, "레거시 데이터".encode("utf-8"), None)
+    ct_part = encrypted[:-16]
+    tag = encrypted[-16:]
+    legacy_ct = iv + tag + ct_part  # 레거시 포맷: iv + tag + ct (매직 바이트 없음)
+
+    mock_sm = _make_mock_sm()
+    store = InMemoryTokenMappingStore()
+    encryptor = PIIEncryptor(mock_sm, store, current_key_version=1)
+
+    result = encryptor.decrypt(legacy_ct)
+    assert result == "레거시 데이터"

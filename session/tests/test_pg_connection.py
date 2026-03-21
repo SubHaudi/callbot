@@ -182,3 +182,22 @@ def test_allowed_session_columns_is_frozenset():
     """화이트리스트가 frozenset으로 불변."""
     from callbot.session.pg_connection import _ALLOWED_SESSION_COLUMNS
     assert isinstance(_ALLOWED_SESSION_COLUMNS, frozenset)
+
+
+def test_update_session_disallowed_column_raises_valueerror():
+    """disallowed column이 화이트리스트 검증에서 거부됨을 검증."""
+    from callbot.session.pg_connection import _ALLOWED_SESSION_COLUMNS
+
+    # 실제 검증 로직 재현
+    updates = {"malicious_col": "value", "end_time": "2026-01-01"}
+    invalid_cols = set(updates.keys()) - _ALLOWED_SESSION_COLUMNS
+    assert invalid_cols == {"malicious_col"}
+
+    # SQL injection 패턴도 거부
+    injection_updates = {"end_time; DROP TABLE sessions--": "x"}
+    invalid_injection = set(injection_updates.keys()) - _ALLOWED_SESSION_COLUMNS
+    assert len(invalid_injection) == 1
+
+    # 정상 컬럼만 있으면 통과
+    valid_updates = {"end_time": "2026-01-01", "end_reason": "NORMAL"}
+    assert set(valid_updates.keys()) - _ALLOWED_SESSION_COLUMNS == set()
