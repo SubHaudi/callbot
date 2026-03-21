@@ -105,6 +105,9 @@ class TurnPipeline:
             session = await loop.run_in_executor(
                 _executor, self._session_manager.get_session, session_id
             )
+            if session is None:
+                from callbot.session.exceptions import SessionNotFoundError
+                raise SessionNotFoundError(session_id)
 
         # PII 마스킹 (M-37 + C-06: DI masker + regex fallback)
         t_pii = time.perf_counter()
