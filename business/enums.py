@@ -22,6 +22,9 @@ class BillingOperation(Enum):
     QUERY_PLANS = "요금제_목록_조회"
     CHANGE_PLAN = "요금제_변경"
     ROLLBACK_PLAN_CHANGE = "요금제_변경_롤백"
+    # Phase C 추가
+    QUERY_DATA_USAGE = "데이터_잔여량_조회"
+    CANCEL_ADDON = "부가서비스_해지"
 
 
 class CustomerDBOperation(Enum):

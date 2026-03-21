@@ -73,6 +73,8 @@ _KEYWORD_RULES: list[tuple[list[str], Intent]] = [
     (["요금제"], Intent.PLAN_INQUIRY),
     (["요금"], Intent.BILLING_INQUIRY),
     (["납부"], Intent.PAYMENT_CHECK),
+    (["데이터", "잔여"], Intent.DATA_USAGE_INQUIRY),
+    (["부가서비스 해지", "부가 해지"], Intent.ADDON_CANCEL),
     (["상담사"], Intent.AGENT_CONNECT),
     (["불만"], Intent.COMPLAINT),
     (["해지"], Intent.CANCELLATION),

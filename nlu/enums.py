@@ -15,6 +15,9 @@ class Intent(Enum):
     GENERAL_INQUIRY = "일반_문의"
     COMPLAINT = "불만_접수"
     CANCELLATION = "해지_문의"
+    # Phase C 추가 업무 의도
+    DATA_USAGE_INQUIRY = "데이터_잔여량_조회"
+    ADDON_CANCEL = "부가서비스_해지"
     # 시스템 제어 의도
     END_CALL = "통화_종료"
     SPEED_CONTROL = "속도_조절"
