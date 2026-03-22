@@ -10,6 +10,7 @@ import re
 from typing import Optional, Any
 
 from callbot.voice_io.tts_engine import TTSEngine
+from callbot.voice_io.enums import NumberType
 from callbot.voice_io.models import AudioStream
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ class PollyTTSEngine(TTSEngine):
                 SampleRate=self._sample_rate,
             )
             audio_data = response["AudioStream"].read()
-            return AudioStream(data=audio_data, format="pcm", sample_rate=int(self._sample_rate))
+            return AudioStream(session_id=session_id, data=audio_data, encoding="pcm", sample_rate=int(self._sample_rate))
         except Exception as e:
             logger.error("Polly synthesize failed: %s", e)
             raise
@@ -104,3 +105,15 @@ class PollyTTSEngine(TTSEngine):
         """말하기 속도 조절 (다음 synthesize부터 적용)."""
         # 속도는 synthesize 호출 시 SSML에 반영
         pass
+
+    def set_speed(self, session_id: str, speed_factor: float) -> None:
+        """말하기 속도 조절 (ABC 구현)."""
+        pass
+
+    def format_number(self, value: str, number_type: NumberType) -> str:
+        """숫자를 한국어 자연어로 변환 — 기본 pass-through."""
+        return value
+
+    def replay_last_response(self, session_id: str) -> AudioStream:
+        """직전 응답 재생 — 미구현 시 빈 오디오."""
+        return AudioStream(session_id=session_id, data=b"", encoding="pcm", sample_rate=int(self._sample_rate))
