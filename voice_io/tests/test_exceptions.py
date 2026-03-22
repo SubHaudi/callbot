@@ -1,3 +1,4 @@
+from __future__ import annotations
 """VendorConnectionError 단위 테스트."""
 
 from datetime import datetime
