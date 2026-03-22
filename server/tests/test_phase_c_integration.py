@@ -46,6 +46,7 @@ def _make_session(sid="int-sess"):
     s = MagicMock()
     s.session_id = sid
     s.pending_intent = None
+    s.pending_switch_intent = None
     s.plan_list_context = None
     s.turn_count = 0
     s.elapsed_minutes = 0.0
