@@ -19,7 +19,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.9
 
       - name: Install dependencies
         run: |
@@ -71,7 +71,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.9
 
       - name: Install dependencies
         run: |
@@ -82,6 +82,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/callbot_test
           REDIS_HOST: localhost
+          ENVIRONMENT: local
           BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
           BEDROCK_REGION: ap-northeast-2
           CALLBOT_EXTERNAL_BACKEND: fake
