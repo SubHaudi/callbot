@@ -310,15 +310,14 @@ class TestTextFallbackProcessing:
         mock_pipeline.process.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_text_input_in_normal_mode_rejected(self):
-        server = VoiceServer()
+    async def test_text_input_without_pipeline_returns_error(self):
+        server = VoiceServer()  # pipeline=None
         session = server.create_session()
-        # NOT in fallback mode
 
         with patch("callbot.voice_io.voice_server.asyncio.to_thread", side_effect=_mock_to_thread):
             result = await server.handle_text(session.session_id, "테스트")
 
-        assert result["error"] == "not_in_fallback_mode"
+        assert result["error"] == "pipeline_not_configured"
 
 
 # ---------------------------------------------------------------------------
