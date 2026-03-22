@@ -139,10 +139,10 @@ class TestHandleTextNoFallbackGuard:
     async def test_handle_text_works_without_fallback_mode(self):
         """is_text_fallback=False 상태에서 텍스트 입력 성공."""
         from callbot.voice_io.voice_server import VoiceServer
-        from unittest.mock import patch, AsyncMock
+        from unittest.mock import AsyncMock
 
         mock_pipeline = MagicMock()
-        mock_pipeline.process = MagicMock(return_value=MagicMock(
+        mock_pipeline.process = AsyncMock(return_value=MagicMock(
             response_text="응답",
             action_type="answer",
         ))
@@ -153,11 +153,7 @@ class TestHandleTextNoFallbackGuard:
         session = server.create_session()
         # NOT setting is_text_fallback — should still work
 
-        async def _mock_to_thread(fn, *args):
-            return fn(*args)
-
-        with patch("callbot.voice_io.voice_server.asyncio.to_thread", side_effect=_mock_to_thread):
-            result = await server.handle_text(session.session_id, "요금 조회")
+        result = await server.handle_text(session.session_id, "요금 조회")
 
         assert "error" not in result or result.get("error") != "not_in_fallback_mode"
         assert result.get("response_text") is not None
