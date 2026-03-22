@@ -10,3 +10,10 @@ __pycache__/
 build/
 dist/
 .claude/
+
+# Terraform
+infra/.terraform/
+infra/*.tfstate*
+infra/*.pem
+infra/tfplan
+infra/.terraform.lock.hcl
