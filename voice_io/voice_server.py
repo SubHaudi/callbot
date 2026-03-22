@@ -123,6 +123,14 @@ class VoiceServer:
 
     # ---- Audio handling ----
 
+    async def handle_audio_chunk(self, session_id: str, chunk: bytes) -> Dict[str, Any]:
+        """오디오 청크를 STT 스트림에 전달. 첫 청크 시 스트림 자동 생성."""
+        raise NotImplementedError("TASK-005에서 구현")
+
+    async def handle_end(self, session_id: str) -> Dict[str, Any]:
+        """발화 종료 — STT 최종 결과 → Pipeline → TTS → 응답."""
+        raise NotImplementedError("TASK-009에서 구현")
+
     async def handle_audio(self, session_id: str, audio_data: bytes) -> Dict[str, Any]:
         """오디오 데이터 처리 → STT → Pipeline → TTS."""
         session = self._sessions.get(session_id)
