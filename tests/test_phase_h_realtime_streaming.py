@@ -222,3 +222,31 @@ class TestHandleAudioBackwardCompat:
         # should still return response_text and processing_ms
         assert "response_text" in result
         assert "processing_ms" in result
+
+
+# ---- TASK-013: consecutive utterances ----
+
+class TestConsecutiveUtterances:
+    def test_consecutive_utterances_create_new_streams(self):
+        stt = _make_mock_stt()
+        tts = _make_mock_tts()
+        pipeline = _make_mock_pipeline()
+        vs = VoiceServer(stt_engine=stt, tts_engine=tts, pipeline=pipeline)
+        session = vs.create_session()
+        loop = asyncio.get_event_loop()
+
+        # First utterance
+        loop.run_until_complete(vs.handle_audio_chunk(session.session_id, b"\x00" * 3200))
+        assert session.stt_stream_active
+        result1 = loop.run_until_complete(vs.handle_end(session.session_id))
+        assert "transcript" in result1
+        assert not session.stt_stream_active
+
+        # Second utterance — should create new stream
+        loop.run_until_complete(vs.handle_audio_chunk(session.session_id, b"\x00" * 3200))
+        assert session.stt_stream_active
+        result2 = loop.run_until_complete(vs.handle_end(session.session_id))
+        assert "transcript" in result2
+
+        # start_stream should be called twice
+        assert stt.start_stream.call_count == 2
