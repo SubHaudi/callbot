@@ -1,3 +1,4 @@
+from __future__ import annotations
 """callbot.voice_io.enums — 열거형 정의"""
 from enum import Enum
 

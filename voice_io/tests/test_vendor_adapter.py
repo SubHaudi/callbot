@@ -1,3 +1,4 @@
+from __future__ import annotations
 """VendorAdapter 프로토콜 단위 테스트."""
 
 from callbot.voice_io.vendor_adapter import VendorAdapter
