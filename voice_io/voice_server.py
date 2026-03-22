@@ -162,7 +162,77 @@ class VoiceServer:
 
     async def handle_end(self, session_id: str) -> Dict[str, Any]:
         """발화 종료 — STT 최종 결과 → Pipeline → TTS → 응답."""
-        raise NotImplementedError("TASK-009에서 구현")
+        import time as _time
+        t0 = _time.perf_counter()
+
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"error": "session_not_found"}
+        session.touch()
+
+        # STT final result
+        if not session.stt_stream_active or session.stt_handle is None:
+            return {"error": "no_active_stt_stream"}
+
+        try:
+            stt_result = await asyncio.to_thread(
+                self._stt.get_final_result, session.stt_handle
+            )
+        except Exception as e:
+            logger.warning("STT get_final_result failed: %s", e)
+            return {"error": "stt_final_failed", "detail": str(e)}
+        finally:
+            # 스트림 종료
+            try:
+                await asyncio.to_thread(self._stt.stop_stream, session.stt_handle)
+            except Exception:
+                pass
+            session.stt_stream_active = False
+            session.stt_handle = None
+
+        transcript = stt_result.text if stt_result else ""
+        if not transcript:
+            elapsed_ms = int((_time.perf_counter() - t0) * 1000)
+            return {"response_text": "", "processing_ms": elapsed_ms}
+
+        # Pipeline
+        if self._pipeline is None:
+            return {"error": "pipeline_not_configured"}
+
+        try:
+            pipeline_result = await asyncio.to_thread(
+                self._pipeline.process, transcript, session_id
+            )
+        except Exception as e:
+            logger.warning("Pipeline failed: %s", e)
+            return {"error": "pipeline_failed", "detail": str(e)}
+
+        # TTS
+        tts_audio = None
+        if self._tts:
+            try:
+                session.is_tts_playing = True
+                tts_result = await asyncio.to_thread(
+                    self._tts.synthesize, pipeline_result.response_text, session_id
+                )
+                tts_audio = tts_result.data
+            except Exception as e:
+                logger.warning("TTS failed: %s", e)
+            finally:
+                session.is_tts_playing = False
+
+        session.turn_count += 1
+        elapsed_ms = int((_time.perf_counter() - t0) * 1000)
+
+        result: Dict[str, Any] = {
+            "transcript": transcript,
+            "response_text": pipeline_result.response_text,
+            "processing_ms": elapsed_ms,
+        }
+        if tts_audio is not None:
+            result["audio"] = tts_audio
+            result["audio_b64"] = base64.b64encode(tts_audio).decode("ascii")
+        return result
 
     async def handle_audio(self, session_id: str, audio_data: bytes) -> Dict[str, Any]:
         """오디오 데이터 처리 → STT → Pipeline → TTS."""
