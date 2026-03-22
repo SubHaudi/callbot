@@ -97,3 +97,31 @@ class TestHandleAudioChunk:
             vs.handle_audio_chunk(session.session_id, b"\x00" * 3200)
         )
         assert result["error"] == "stt_not_configured"
+
+
+# ---- TASK-007: partial transcript via Queue ----
+
+class TestPartialTranscript:
+    def test_partial_result_enqueued(self):
+        stt = _make_mock_stt()
+        # partial result with text
+        stt.process_audio_chunk.return_value = MagicMock(text="안녕", is_final=False)
+        vs = VoiceServer(stt_engine=stt, pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        asyncio.get_event_loop().run_until_complete(
+            vs.handle_audio_chunk(session.session_id, b"\x00" * 3200)
+        )
+        assert not session.partial_queue.empty()
+        item = session.partial_queue.get_nowait()
+        assert item["text"] == "안녕"
+        assert item["is_final"] is False
+
+    def test_partial_queue_empty_when_no_partial(self):
+        stt = _make_mock_stt()
+        stt.process_audio_chunk.return_value = MagicMock(text="", is_final=False)
+        vs = VoiceServer(stt_engine=stt, pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        asyncio.get_event_loop().run_until_complete(
+            vs.handle_audio_chunk(session.session_id, b"\x00" * 3200)
+        )
+        assert session.partial_queue.empty()
