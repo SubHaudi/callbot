@@ -128,33 +128,17 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("서버 초기화 완료: environment=%s", config.environment)
 
         # Pipeline 조립 (bootstrap.py)
-        from server.bootstrap import assemble_pipeline
+        from server.bootstrap import assemble_pipeline, assemble_voice_server, init_stt_engine, init_tts_engine
         app.state.pipeline = assemble_pipeline(
             pg_connection=app.state.pg_connection,
             redis_store=app.state.redis_store,
             bedrock_service=app.state.bedrock_service,
         )
 
-        # VoiceServer 조립 (pipeline 초기화 후)
-        # STT/TTS 엔진 초기화 — AWS 자격증명 없으면 None (텍스트 전용 모드)
-        stt_engine = None
-        tts_engine = None
-        try:
-            from callbot.voice_io.transcribe_stt import TranscribeSTTEngine
-            stt_engine = TranscribeSTTEngine()
-            logger.info("TranscribeSTTEngine 초기화 성공")
-        except Exception as e:
-            logger.warning("STT 엔진 초기화 실패 (텍스트 전용 모드): %s", e)
-
-        try:
-            from callbot.voice_io.polly_tts import PollyTTSEngine
-            tts_engine = PollyTTSEngine()
-            logger.info("PollyTTSEngine 초기화 성공")
-        except Exception as e:
-            logger.warning("TTS 엔진 초기화 실패 (텍스트 전용 모드): %s", e)
-
-        from callbot.voice_io.voice_server import VoiceServer
-        app.state.voice_server = VoiceServer(
+        # VoiceServer 조립 (bootstrap.py) — STT/TTS 없으면 텍스트 전용
+        stt_engine = init_stt_engine()
+        tts_engine = init_tts_engine()
+        app.state.voice_server = assemble_voice_server(
             pipeline=app.state.pipeline,
             stt_engine=stt_engine,
             tts_engine=tts_engine,
