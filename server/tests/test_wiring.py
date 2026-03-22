@@ -130,3 +130,46 @@ class TestRouteDefense:
         })
         assert resp.status_code == 503
         assert "Pipeline not initialized" in resp.json().get("detail", "")
+
+
+class TestHandleTextNoFallbackGuard:
+    """handle_text fallback 가드 제거 + WS pipeline 방어."""
+
+    @pytest.mark.asyncio
+    async def test_handle_text_works_without_fallback_mode(self):
+        """is_text_fallback=False 상태에서 텍스트 입력 성공."""
+        from callbot.voice_io.voice_server import VoiceServer
+        from unittest.mock import patch, AsyncMock
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.process = MagicMock(return_value=MagicMock(
+            response_text="응답",
+            action_type="answer",
+        ))
+        mock_tts = MagicMock()
+        mock_tts.synthesize = MagicMock(return_value=b"\x00")
+
+        server = VoiceServer(pipeline=mock_pipeline, tts_engine=mock_tts)
+        session = server.create_session()
+        # NOT setting is_text_fallback — should still work
+
+        async def _mock_to_thread(fn, *args):
+            return fn(*args)
+
+        with patch("callbot.voice_io.voice_server.asyncio.to_thread", side_effect=_mock_to_thread):
+            result = await server.handle_text(session.session_id, "요금 조회")
+
+        assert "error" not in result or result.get("error") != "not_in_fallback_mode"
+        assert result.get("response_text") is not None
+
+    @pytest.mark.asyncio
+    async def test_handle_text_returns_error_when_pipeline_none(self):
+        """pipeline None 시 에러 응답."""
+        from callbot.voice_io.voice_server import VoiceServer
+
+        server = VoiceServer()  # pipeline=None
+        session = server.create_session()
+
+        result = await server.handle_text(session.session_id, "요금 조회")
+
+        assert result.get("error") == "pipeline_not_configured"
