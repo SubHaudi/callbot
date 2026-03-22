@@ -250,3 +250,21 @@ class TestConsecutiveUtterances:
 
         # start_stream should be called twice
         assert stt.start_stream.call_count == 2
+
+
+# ---- TASK-015: latency benchmark ----
+
+class TestLatencyBenchmark:
+    def test_end_to_end_processing_ms_in_response(self):
+        vs = VoiceServer(
+            stt_engine=_make_mock_stt(),
+            tts_engine=_make_mock_tts(),
+            pipeline=_make_mock_pipeline(),
+        )
+        session = vs.create_session()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(vs.handle_audio_chunk(session.session_id, b"\x00" * 3200))
+        result = loop.run_until_complete(vs.handle_end(session.session_id))
+        assert "processing_ms" in result
+        assert isinstance(result["processing_ms"], int)
+        assert result["processing_ms"] >= 0
