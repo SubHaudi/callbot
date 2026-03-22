@@ -24,7 +24,7 @@
 | SSML | Speech Synthesis Markup Language — TTS 제어 마크업 |
 | PCM | Pulse Code Modulation — 비압축 오디오 포맷 |
 | opus | WebRTC 표준 오디오 코덱 (브라우저 호환) |
-| FallbackSTTEngine | 주 STT 실패 시 폴백 STT로 전환하는 래퍼 클래스 |
+| FallbackSTTEngine | 주 STT 실패 시 텍스트 모드로 전환하는 래퍼 클래스 (별도 폴백 STT 없음) |
 | StreamHandle | STT 스트리밍 세션 핸들 (session_id 기반) |
 
 ## 4. 사용자 스토리
@@ -43,7 +43,7 @@
 - 한국어 `ko-KR` 고정
 - 입력: PCM 16kHz 16bit mono
 - 레이턴시: 스트리밍이므로 발화 종료 후 ~0.5-1초 내 최종 결과 (CPU 추론 대비 대폭 개선)
-- 비용: 월 1천 턴 × 평균 5초 = ~83분 → ~$1.2/mo (데모 규모)
+- 비용: 월 1천 턴 × 평균 5초 = ~83분 → ~$2.0/mo (데모 규모, $0.024/min)
 - 대안: STTEngine ABC 교체로 faster-whisper(GPU), Google Speech-to-Text 등 전환 가능
 - `stop_stream()`, `cancel()` 메서드 구현 (기존 ABC에 없으면 추가 — M-27)
 
@@ -115,8 +115,8 @@
 
 ### NFR-003: 비용
 - Polly Neural: ~$1.6/mo (데모 규모, 월 1천 턴 × 100자 = 10만 문자)
-- Transcribe Streaming: ~$1.2/mo (월 1천 턴 × 5초 = ~83분)
-- 합계: ~$2.8/mo
+- Transcribe Streaming: ~$2.0/mo (월 1천 턴 × 5초 = ~83분, $0.024/min)
+- 합계: ~$3.6/mo
 
 ### NFR-004: 보안
 - 음성 데이터 로그 미저장 (PCM/opus 원본 디스크 저장 금지)
