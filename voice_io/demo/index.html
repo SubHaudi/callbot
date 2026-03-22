@@ -584,6 +584,7 @@ async function startRecording(){
 
 function stopRecording(){
   isRecording=false;
+  const wasAutoStop=isAutoStop;isAutoStop=false;
   if(mediaStream)mediaStream.getTracks().forEach(t=>t.stop());
   if(audioCtx)audioCtx.close();
   btnMic.classList.remove('recording');
