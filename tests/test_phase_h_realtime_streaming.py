@@ -125,3 +125,35 @@ class TestPartialTranscript:
             vs.handle_audio_chunk(session.session_id, b"\x00" * 3200)
         )
         assert session.partial_queue.empty()
+
+
+# ---- TASK-009: handle_end ----
+
+class TestHandleEnd:
+    def test_handle_end_returns_full_response(self):
+        stt = _make_mock_stt()
+        tts = _make_mock_tts()
+        pipeline = _make_mock_pipeline()
+        vs = VoiceServer(stt_engine=stt, tts_engine=tts, pipeline=pipeline)
+        session = vs.create_session()
+        loop = asyncio.get_event_loop()
+        # First send a chunk to activate stream
+        loop.run_until_complete(vs.handle_audio_chunk(session.session_id, b"\x00" * 3200))
+        # Then end
+        result = loop.run_until_complete(vs.handle_end(session.session_id))
+        assert "transcript" in result
+        assert result["transcript"] == "final text"
+        assert result["response_text"] == "안녕하세요"
+        assert "processing_ms" in result
+        assert "audio_b64" in result
+        # stream should be closed
+        assert not session.stt_stream_active
+        assert session.stt_handle is None
+
+    def test_handle_end_without_active_stream(self):
+        vs = VoiceServer(stt_engine=_make_mock_stt(), pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        result = asyncio.get_event_loop().run_until_complete(
+            vs.handle_end(session.session_id)
+        )
+        assert result["error"] == "no_active_stt_stream"
