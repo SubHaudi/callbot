@@ -133,6 +133,9 @@ class VoiceServer:
         t0 = time.perf_counter()
         stt_handle = None
 
+        if not self._stt:
+            return {"error": "stt_not_configured", "message": "STT 엔진이 설정되지 않았습니다"}
+
         try:
             # STT (to_thread로 동기 호출 래핑)
             stt_handle = await asyncio.to_thread(self._stt.start_stream, session_id)
@@ -141,7 +144,11 @@ class VoiceServer:
             stt_result = await asyncio.to_thread(self._stt.get_final_result, stt_handle)
 
             if not stt_result.is_valid:
-                return {"transcript": "", "response_text": "음성을 인식하지 못했습니다."}
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                return {"transcript": "", "response_text": "음성을 인식하지 못했습니다.", "processing_ms": elapsed_ms}
+
+            if not self._pipeline:
+                return {"error": "pipeline_not_configured", "message": "Pipeline이 설정되지 않았습니다"}
 
             # Pipeline (to_thread — 동기 LLM 호출)
             pipeline_result = await asyncio.to_thread(
@@ -200,6 +207,9 @@ class VoiceServer:
 
         if not session.is_text_fallback:
             return {"error": "not_in_fallback_mode"}
+
+        if not self._pipeline:
+            return {"error": "pipeline_not_configured", "message": "Pipeline이 설정되지 않았습니다"}
 
         t0 = time.perf_counter()
 

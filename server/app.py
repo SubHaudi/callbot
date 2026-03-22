@@ -149,6 +149,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             session_manager=session_manager,
             llm_engine=app.state.bedrock_service,
         )
+
+        # VoiceServer 조립 (pipeline 초기화 후)
+        from callbot.voice_io.voice_server import VoiceServer
+        app.state.voice_server = VoiceServer(
+            pipeline=app.state.pipeline,
+        )
+        app.state.voice_server.start_background_cleanup()
     except Exception as exc:
         import traceback
         print(f"서버 초기화 실패: {exc}", flush=True)
@@ -199,12 +206,6 @@ def create_app() -> FastAPI:
     # Voice WebSocket router
     from server.voice_ws import router as voice_router
     app.include_router(voice_router)
-
-    # VoiceServer DI — app.state에 주입
-    from callbot.voice_io.voice_server import VoiceServer
-    app.state.voice_server = VoiceServer(
-        pipeline=getattr(app.state, 'pipeline', None),
-    )
 
     # Error handlers
     @app.exception_handler(SessionNotFoundError)

@@ -8,7 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -102,8 +102,9 @@ async def voice_websocket(websocket: WebSocket) -> None:
                 # not_playing → 무시 (ACK 불필요)
 
             elif msg["type"] == "end":
-                # end = 세션 종료 요청
-                break
+                # end = 발화 종료 (FR-002) — 현재 버퍼 방식이므로 no-op
+                # 세션 종료는 WebSocket close로 처리
+                continue
 
     except WebSocketDisconnect:
         logger.info("Voice WS disconnected: session=%s", session_id)
