@@ -157,3 +157,24 @@ class TestHandleEnd:
             vs.handle_end(session.session_id)
         )
         assert result["error"] == "no_active_stt_stream"
+
+
+# ---- TASK-011: disconnect cleanup ----
+
+class TestDisconnectCleanup:
+    def test_disconnect_cleans_active_stt_stream(self):
+        stt = _make_mock_stt()
+        vs = VoiceServer(stt_engine=stt, pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(vs.handle_audio_chunk(session.session_id, b"\x00" * 3200))
+        assert session.stt_stream_active
+        # end_session should clean up
+        vs.end_session(session.session_id)
+        stt.stop_stream.assert_called_once()
+
+    def test_disconnect_without_stream_no_error(self):
+        vs = VoiceServer(pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        # should not raise
+        vs.end_session(session.session_id)
