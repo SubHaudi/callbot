@@ -264,9 +264,13 @@ class VoiceServer:
 
         t0 = time.perf_counter()
 
-        pipeline_result = await self._pipeline.process(
-            session_id=session_id, caller_id=session_id, text=text
-        )
+        try:
+            pipeline_result = await self._pipeline.process(
+                session_id=session_id, caller_id=session_id, text=text
+            )
+        except Exception as e:
+            logger.warning("Pipeline failed: %s", e)
+            return {"error": "pipeline_failed", "detail": str(e)}
 
         tts_audio = None
         if self._tts:
