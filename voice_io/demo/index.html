@@ -279,13 +279,9 @@ h1,h2,h3,.header-info h1{
 .btn-mic.recording{
   background:var(--primary);color:#fff;
   border-color:var(--primary);
-  box-shadow:0 0 0 4px var(--primary-soft);
-  animation:micPulse 2s ease infinite;
+  box-shadow:0 0 0 calc(4px + var(--vol,0) * 0.3px) var(--primary-soft);
 }
-@keyframes micPulse{
-  0%,100%{box-shadow:0 0 0 4px var(--primary-soft)}
-  50%{box-shadow:0 0 0 10px rgba(192,93,46,0)}
-}
+/* Volume indicator replaces micPulse animation */
 
 /* Secondary actions row */
 .btn-row{
@@ -580,6 +576,14 @@ async function startRecording(){
   btnMic.classList.add('recording');
   btnRow.classList.add('active');
   showRecording();
+  updateVolume();
+}
+
+function updateVolume(){
+  if(!isRecording)return;
+  const vol=Math.min(smoothedRMS*1000,100);
+  btnMic.style.setProperty('--vol',vol.toFixed(0));
+  requestAnimationFrame(updateVolume);
 }
 
 function stopRecording(){
@@ -588,6 +592,7 @@ function stopRecording(){
   if(mediaStream)mediaStream.getTracks().forEach(t=>t.stop());
   if(audioCtx)audioCtx.close();
   btnMic.classList.remove('recording');
+  btnMic.style.removeProperty('--vol');
   btnRow.classList.remove('active');
   hideRecording();
   if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'end'}));
