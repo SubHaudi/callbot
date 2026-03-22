@@ -157,16 +157,17 @@ class VoiceServer:
 
             # TTS (to_thread)
             tts_audio = None
-            try:
-                session.is_tts_playing = True
-                tts_result = await asyncio.to_thread(
-                    self._tts.synthesize, pipeline_result.response_text, session_id
-                )
-                tts_audio = tts_result.data
-            except Exception as e:
-                logger.warning("TTS failed: %s", e)
-            finally:
-                session.is_tts_playing = False
+            if self._tts:
+                try:
+                    session.is_tts_playing = True
+                    tts_result = await asyncio.to_thread(
+                        self._tts.synthesize, pipeline_result.response_text, session_id
+                    )
+                    tts_audio = tts_result.data
+                except Exception as e:
+                    logger.warning("TTS failed: %s", e)
+                finally:
+                    session.is_tts_playing = False
 
             session.turn_count += 1
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
@@ -218,16 +219,17 @@ class VoiceServer:
         )
 
         tts_audio = None
-        try:
-            session.is_tts_playing = True
-            tts_result = await asyncio.to_thread(
-                self._tts.synthesize, pipeline_result.response_text, session_id
-            )
-            tts_audio = tts_result.data
-        except Exception as e:
-            logger.warning("TTS failed: %s", e)
-        finally:
-            session.is_tts_playing = False
+        if self._tts:
+            try:
+                session.is_tts_playing = True
+                tts_result = await asyncio.to_thread(
+                    self._tts.synthesize, pipeline_result.response_text, session_id
+                )
+                tts_audio = tts_result.data
+            except Exception as e:
+                logger.warning("TTS failed: %s", e)
+            finally:
+                session.is_tts_playing = False
 
         session.turn_count += 1
         elapsed_ms = int((time.perf_counter() - t0) * 1000)

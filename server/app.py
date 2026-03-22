@@ -151,6 +151,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
         # VoiceServer 조립 (pipeline 초기화 후)
+        # TODO: TranscribeSTTEngine, PollyTTSEngine 인스턴스 생성 후 주입
+        # STT/TTS는 AWS 자격증명 필요 — 없으면 텍스트 전용 모드로 동작
         from callbot.voice_io.voice_server import VoiceServer
         app.state.voice_server = VoiceServer(
             pipeline=app.state.pipeline,
