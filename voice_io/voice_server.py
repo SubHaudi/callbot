@@ -29,9 +29,13 @@ class VoiceSession:
     vad_silence_sec: float = 1.0
     turn_count: int = 0
     stt_handle: Any = None  # STT 스트리밍 핸들
+    stt_stream_active: bool = False
+    partial_queue: Any = None  # asyncio.Queue — initialized in __post_init__
 
     def __post_init__(self) -> None:
         self._validate_vad_silence(self.vad_silence_sec)
+        if self.partial_queue is None:
+            self.partial_queue = asyncio.Queue()
 
     @staticmethod
     def _validate_vad_silence(value: float) -> None:
