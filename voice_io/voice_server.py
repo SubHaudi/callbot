@@ -132,6 +132,9 @@ class VoiceServer:
             return {"error": "session_not_found"}
         session.touch()
 
+        if session.is_text_fallback:
+            return {"error": "text_fallback_mode", "message": "음성 인식 불가 — 텍스트로 입력해주세요"}
+
         if self._stt is None:
             return {"error": "stt_not_configured"}
 
@@ -179,6 +182,10 @@ class VoiceServer:
             stt_result = await asyncio.to_thread(
                 self._stt.get_final_result, session.stt_handle
             )
+        except STTFallbackError:
+            session.is_text_fallback = True
+            logger.warning("STT failed for session %s, switching to text fallback", session_id)
+            return {"error": "stt_failed", "message": "음성 인식 실패 — 텍스트 모드로 전환합니다"}
         except Exception as e:
             logger.warning("STT get_final_result failed: %s", e)
             return {"error": "stt_final_failed", "detail": str(e)}
