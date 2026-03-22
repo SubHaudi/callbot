@@ -161,10 +161,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         app.state.voice_server.start_background_cleanup()
     except Exception as exc:
-        import traceback
-        print(f"서버 초기화 실패: {exc}", flush=True)
-        traceback.print_exc()
-        logger.exception("서버 초기화 실패 — graceful degradation 모드")
+        logger.critical("서버 초기화 실패 — 서버 시작 불가: %s", exc)
+        raise
 
     yield
 
