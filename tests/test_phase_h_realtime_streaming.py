@@ -204,3 +204,21 @@ class TestBargeInSTTCleanup:
             vs.handle_interrupt(session.session_id)
         )
         assert result["status"] == "not_playing"
+
+
+# ---- TASK-011C: handle_audio backward compat ----
+
+class TestHandleAudioBackwardCompat:
+    def test_legacy_handle_audio_still_works(self):
+        """기존 handle_audio가 여전히 동작하는지 확인."""
+        stt = _make_mock_stt()
+        tts = _make_mock_tts()
+        pipeline = _make_mock_pipeline()
+        vs = VoiceServer(stt_engine=stt, tts_engine=tts, pipeline=pipeline)
+        session = vs.create_session()
+        result = asyncio.get_event_loop().run_until_complete(
+            vs.handle_audio(session.session_id, b"\x00" * 3200)
+        )
+        # should still return response_text and processing_ms
+        assert "response_text" in result
+        assert "processing_ms" in result
