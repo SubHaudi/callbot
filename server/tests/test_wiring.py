@@ -12,6 +12,23 @@ from unittest.mock import MagicMock
 from server.bootstrap import assemble_pipeline
 
 
+class TestLifespanFailFast:
+    """_lifespan이 필수 의존성 실패 시 예외를 전파하는지 검증."""
+
+    @pytest.mark.asyncio
+    async def test_lifespan_raises_on_db_failure(self):
+        """DB 초기화 실패 시 _lifespan이 예외를 삼키지 않고 전파."""
+        from unittest.mock import patch
+        from server.app import create_app
+
+        app = create_app()
+
+        with patch("server.app._init_pg", side_effect=RuntimeError("DB connection failed")):
+            with pytest.raises(RuntimeError, match="DB connection failed"):
+                async with app.router.lifespan_context(app):
+                    pass  # should not reach here
+
+
 class TestAssemblePipeline:
     """assemble_pipeline 조립 검증."""
 
