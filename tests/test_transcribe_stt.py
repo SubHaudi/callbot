@@ -1,6 +1,7 @@
 """Phase F TASK-006: TranscribeSTTEngine mock boto3 테스트."""
 from __future__ import annotations
 
+import unittest.mock
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -83,14 +84,20 @@ class TestTranscribeSTTEngine:
         assert result.confidence == 0.0
         mock_transcribe.transcribe.assert_not_called()
 
-    def test_no_client_raises_runtime_error(self):
-        """(5) 클라이언트 미설정 시 RuntimeError."""
+    def test_no_mock_client_uses_streaming_path(self):
+        """(5) mock_client 미주입 시 _transcribe_streaming 경로로 진입."""
         engine = TranscribeSTTEngine(transcribe_client=None)
-        engine._client = None
+        assert engine._mock_client is None
         handle = engine.start_stream("sess-1")
-        engine.process_audio_chunk(handle, b"audio")
-        with pytest.raises(RuntimeError, match="Transcribe client not available"):
-            engine.get_final_result(handle)
+        engine.process_audio_chunk(handle, b"\x00" * 3200)
+        # _transcribe_streaming이 호출되는지 확인 (실제 AWS 호출은 mock)
+        with unittest.mock.patch.object(
+            engine, "_transcribe_streaming",
+            return_value={"text": "테스트", "confidence": 0.9},
+        ) as mock_streaming:
+            result = engine.get_final_result(handle)
+            mock_streaming.assert_called_once()
+            assert result.text == "테스트"
 
     def test_language_code_ko_kr(self, mock_transcribe):
         """(6) language_code=ko-KR 확인."""
