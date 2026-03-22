@@ -107,3 +107,26 @@ class TestAssembleVoiceServer:
         session = vs.create_session()
         assert session is not None
         assert session.session_id
+
+
+class TestRouteDefense:
+    """routes.py의 pipeline None 방어 검증."""
+
+    def test_turn_returns_503_with_pipeline_not_initialized_message(self):
+        """Pipeline 미조립 시 503 + 'Pipeline not initialized' 메시지."""
+        from fastapi.testclient import TestClient
+        from fastapi import FastAPI
+        from server.routes import router as api_router
+
+        app = FastAPI()
+        app.include_router(api_router)
+        # healthy=True 설정하여 healthy 가드 통과, pipeline 가드에서 걸리게
+        app.state.healthy = True
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/api/v1/turn", json={
+            "caller_id": "test",
+            "text": "요금 조회",
+        })
+        assert resp.status_code == 503
+        assert "Pipeline not initialized" in resp.json().get("detail", "")
