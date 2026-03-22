@@ -97,6 +97,14 @@ class PollyTTSEngine(TTSEngine):
         """바지인 시 재생 중단 — stopped 플래그로 전환."""
         self._playing[session_id] = False
 
+    def speech_start(self, session_id: str) -> None:
+        """사용자 발화 시작 감지 콜백."""
+        pass
+
+    def speech_end(self, session_id: str) -> None:
+        """사용자 발화 종료 감지 콜백."""
+        pass
+
     def is_playing(self, session_id: str) -> bool:
         """세션의 TTS 재생 중 여부."""
         return self._playing.get(session_id, False)

@@ -81,6 +81,14 @@ class TTSEngineBase(TTSEngine):
         """재생 중단 — 기본 구현은 no-op."""
         pass
 
+    def speech_start(self, session_id: str) -> None:
+        """사용자 발화 시작 감지 콜백 — 기본 구현은 no-op."""
+        pass
+
+    def speech_end(self, session_id: str) -> None:
+        """사용자 발화 종료 감지 콜백 — 기본 구현은 no-op."""
+        pass
+
     def set_speed(self, session_id: str, speed_factor: float) -> None:
         """세션별 속도 팩터를 설정한다. speed_factor ∈ [0.7, 1.3] 범위 검증."""
         if not (TTS_SPEED_MIN <= speed_factor <= TTS_SPEED_MAX):
