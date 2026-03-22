@@ -252,7 +252,7 @@ class VoiceServer:
     # ---- Text handling (fallback) ----
 
     async def handle_text(self, session_id: str, text: str) -> Dict[str, Any]:
-        """텍스트 폴백 모드에서 텍스트 입력 처리 (FR-005)."""
+        """텍스트 입력 처리. Pipeline 없으면 에러 반환."""
         session = self._sessions.get(session_id)
         if session is None:
             return {"error": "session_not_found"}

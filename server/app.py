@@ -93,14 +93,12 @@ def _init_redis(config: ServerConfig) -> Any:
 
 
 def _init_bedrock(config: ServerConfig) -> Any:
-    """Bedrock 서비스 초기화. CALLBOT_LLM_BACKEND=fake이면 mock 반환."""
+    """Bedrock 서비스 초기화. CALLBOT_LLM_BACKEND=fake이면 FakeLLM 반환."""
     import os
     if os.getenv("CALLBOT_LLM_BACKEND") == "fake":
-        from unittest.mock import MagicMock
-        mock = MagicMock()
-        mock.generate.return_value = "테스트 응답입니다."
-        logger.info("Bedrock fake 모드 — mock LLM 사용")
-        return mock
+        from server.fake_llm import FakeLLMEngine
+        logger.info("Bedrock fake 모드 — FakeLLMEngine 사용")
+        return FakeLLMEngine()
 
     from callbot.llm_engine.bedrock_service import BedrockConfig, BedrockClaudeService
     bedrock_config = BedrockConfig(
