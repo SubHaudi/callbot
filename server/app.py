@@ -108,8 +108,6 @@ def _init_bedrock(config: ServerConfig) -> Any:
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """앱 라이프사이클: startup → yield → shutdown."""
-    from server.bootstrap import assemble_pipeline, assemble_voice_server, init_stt_engine, init_tts_engine
-
     app.state.healthy = False
     app.state.pg_connection = None
     app.state.redis_store = None
@@ -129,25 +127,59 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.healthy = True
         logger.info("서버 초기화 완료: environment=%s", config.environment)
 
-        # Pipeline 조립 (bootstrap.py)
-        app.state.pipeline = assemble_pipeline(
-            pg_connection=app.state.pg_connection,
-            redis_store=app.state.redis_store,
-            bedrock_service=app.state.bedrock_service,
+        # Pipeline 조립
+        from callbot.nlu.prompt_injection_filter import PromptInjectionFilter
+        from callbot.orchestrator.conversation_orchestrator import ConversationOrchestrator
+        from callbot.session.session_manager import SessionManager
+        from callbot.session.session_store import InMemorySessionStore
+        from callbot.session.repository import CallbotDBRepository
+        from server.pipeline import TurnPipeline
+
+        pif = PromptInjectionFilter()
+        repository = CallbotDBRepository(db=app.state.pg_connection)
+        session_store = InMemorySessionStore()
+        session_manager = SessionManager(
+            repository=repository,
+            session_store=session_store,
+        )
+        orchestrator = ConversationOrchestrator()
+        app.state.pipeline = TurnPipeline(
+            pif=pif,
+            orchestrator=orchestrator,
+            session_manager=session_manager,
+            llm_engine=app.state.bedrock_service,
         )
 
-        # VoiceServer 조립 (STT/TTS 없으면 텍스트 전용)
-        stt_engine = init_stt_engine()
-        tts_engine = init_tts_engine()
-        app.state.voice_server = assemble_voice_server(
+        # VoiceServer 조립 (pipeline 초기화 후)
+        # STT/TTS 엔진 초기화 — AWS 자격증명 없으면 None (텍스트 전용 모드)
+        stt_engine = None
+        tts_engine = None
+        try:
+            from callbot.voice_io.transcribe_stt import TranscribeSTTEngine
+            stt_engine = TranscribeSTTEngine()
+            logger.info("TranscribeSTTEngine 초기화 성공")
+        except Exception as e:
+            logger.warning("STT 엔진 초기화 실패 (텍스트 전용 모드): %s", e)
+
+        try:
+            from callbot.voice_io.polly_tts import PollyTTSEngine
+            tts_engine = PollyTTSEngine()
+            logger.info("PollyTTSEngine 초기화 성공")
+        except Exception as e:
+            logger.warning("TTS 엔진 초기화 실패 (텍스트 전용 모드): %s", e)
+
+        from callbot.voice_io.voice_server import VoiceServer
+        app.state.voice_server = VoiceServer(
             pipeline=app.state.pipeline,
             stt_engine=stt_engine,
             tts_engine=tts_engine,
         )
         app.state.voice_server.start_background_cleanup()
     except Exception as exc:
-        logger.critical("서버 초기화 실패 — 서버 시작 불가: %s", exc)
-        raise
+        import traceback
+        print(f"서버 초기화 실패: {exc}", flush=True)
+        traceback.print_exc()
+        logger.exception("서버 초기화 실패 — graceful degradation 모드")
 
     yield
 
