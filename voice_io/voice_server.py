@@ -29,9 +29,13 @@ class VoiceSession:
     vad_silence_sec: float = 1.0
     turn_count: int = 0
     stt_handle: Any = None  # STT 스트리밍 핸들
+    stt_stream_active: bool = False
+    partial_queue: Any = None  # asyncio.Queue — initialized in __post_init__
 
     def __post_init__(self) -> None:
         self._validate_vad_silence(self.vad_silence_sec)
+        if self.partial_queue is None:
+            self.partial_queue = asyncio.Queue()
 
     @staticmethod
     def _validate_vad_silence(value: float) -> None:
@@ -84,6 +88,8 @@ class VoiceServer:
                 self._stt.stop_stream(session.stt_handle)
             except Exception as e:
                 logger.warning("Failed to stop STT stream on session end: %s", e)
+            session.stt_handle = None
+            session.stt_stream_active = False
 
     def get_session(self, session_id: str) -> Optional[VoiceSession]:
         return self._sessions.get(session_id)
@@ -119,82 +125,129 @@ class VoiceServer:
 
     # ---- Audio handling ----
 
-    async def handle_audio(self, session_id: str, audio_data: bytes) -> Dict[str, Any]:
-        """오디오 데이터 처리 → STT → Pipeline → TTS."""
+    async def handle_audio_chunk(self, session_id: str, chunk: bytes) -> Dict[str, Any]:
+        """오디오 청크를 STT 스트림에 전달. 첫 청크 시 스트림 자동 생성."""
         session = self._sessions.get(session_id)
         if session is None:
             return {"error": "session_not_found"}
-
         session.touch()
 
         if session.is_text_fallback:
             return {"error": "text_fallback_mode", "message": "음성 인식 불가 — 텍스트로 입력해주세요"}
 
-        t0 = time.perf_counter()
-        stt_handle = None
+        if self._stt is None:
+            return {"error": "stt_not_configured"}
 
-        if not self._stt:
-            return {"error": "stt_not_configured", "message": "STT 엔진이 설정되지 않았습니다"}
+        # 첫 청크: STT 스트림 자동 생성
+        if not session.stt_stream_active:
+            try:
+                handle = await asyncio.to_thread(
+                    self._stt.start_stream, session_id
+                )
+                session.stt_handle = handle
+                session.stt_stream_active = True
+            except Exception as e:
+                logger.warning("STT start_stream failed: %s", e)
+                return {"error": "stt_start_failed", "detail": str(e)}
+
+        # 청크 전달 + partial result
+        try:
+            partial = await asyncio.to_thread(
+                self._stt.process_audio_chunk, session.stt_handle, chunk
+            )
+            if partial and partial.text:
+                await session.partial_queue.put({
+                    "text": partial.text,
+                    "is_final": getattr(partial, "is_final", False),
+                })
+            return {"status": "ok"}
+        except Exception as e:
+            logger.warning("STT process_audio_chunk failed: %s", e)
+            return {"error": "stt_chunk_failed", "detail": str(e)}
+
+    async def handle_end(self, session_id: str) -> Dict[str, Any]:
+        """발화 종료 — STT 최종 결과 → Pipeline → TTS → 응답."""
+        t0 = time.perf_counter()
+
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"error": "session_not_found"}
+        session.touch()
+
+        # STT final result
+        if not session.stt_stream_active or session.stt_handle is None:
+            return {"error": "no_active_stt_stream"}
 
         try:
-            # STT (to_thread로 동기 호출 래핑)
-            stt_handle = await asyncio.to_thread(self._stt.start_stream, session_id)
-            session.stt_handle = stt_handle
-            await asyncio.to_thread(self._stt.process_audio_chunk, stt_handle, audio_data)
-            stt_result = await asyncio.to_thread(self._stt.get_final_result, stt_handle)
-
-            if not stt_result.is_valid:
-                elapsed_ms = int((time.perf_counter() - t0) * 1000)
-                return {"transcript": "", "response_text": "음성을 인식하지 못했습니다.", "processing_ms": elapsed_ms}
-
-            if not self._pipeline:
-                return {"error": "pipeline_not_configured", "message": "Pipeline이 설정되지 않았습니다"}
-
-            # Pipeline (to_thread — 동기 LLM 호출)
-            pipeline_result = await asyncio.to_thread(
-                self._pipeline.process, session_id, stt_result.text
+            stt_result = await asyncio.to_thread(
+                self._stt.get_final_result, session.stt_handle
             )
-
-            # TTS (to_thread)
-            tts_audio = None
-            if self._tts:
-                try:
-                    session.is_tts_playing = True
-                    tts_result = await asyncio.to_thread(
-                        self._tts.synthesize, pipeline_result.response_text, session_id
-                    )
-                    tts_audio = tts_result.data
-                except Exception as e:
-                    logger.warning("TTS failed: %s", e)
-                finally:
-                    session.is_tts_playing = False
-
-            session.turn_count += 1
-            elapsed_ms = int((time.perf_counter() - t0) * 1000)
-
-            result: Dict[str, Any] = {
-                "transcript": stt_result.text,
-                "response_text": pipeline_result.response_text,
-                "processing_ms": elapsed_ms,
-            }
-            if tts_audio is not None:
-                result["audio"] = tts_audio
-                result["audio_b64"] = base64.b64encode(tts_audio).decode("ascii")
-            return result
-
         except STTFallbackError:
             session.is_text_fallback = True
             logger.warning("STT failed for session %s, switching to text fallback", session_id)
             return {"error": "stt_failed", "message": "음성 인식 실패 — 텍스트 모드로 전환합니다"}
-
+        except Exception as e:
+            logger.warning("STT get_final_result failed: %s", e)
+            return {"error": "stt_final_failed", "detail": str(e)}
         finally:
-            # STT 핸들 정리
-            if stt_handle and self._stt:
-                try:
-                    await asyncio.to_thread(self._stt.stop_stream, stt_handle)
-                except Exception:
-                    pass
+            # 스트림 종료
+            try:
+                await asyncio.to_thread(self._stt.stop_stream, session.stt_handle)
+            except Exception:
+                pass
+            session.stt_stream_active = False
             session.stt_handle = None
+
+        transcript = stt_result.text if stt_result else ""
+        if not transcript:
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            return {"transcript": "", "response_text": "", "processing_ms": elapsed_ms}
+
+        # Pipeline
+        if self._pipeline is None:
+            return {"error": "pipeline_not_configured"}
+
+        try:
+            pipeline_result = await asyncio.to_thread(
+                self._pipeline.process, session_id, transcript
+            )
+        except Exception as e:
+            logger.warning("Pipeline failed: %s", e)
+            return {"error": "pipeline_failed", "detail": str(e)}
+
+        # TTS
+        tts_audio = None
+        if self._tts:
+            try:
+                session.is_tts_playing = True
+                tts_result = await asyncio.to_thread(
+                    self._tts.synthesize, pipeline_result.response_text, session_id
+                )
+                tts_audio = tts_result.data
+            except Exception as e:
+                logger.warning("TTS failed: %s", e)
+            finally:
+                session.is_tts_playing = False
+
+        session.turn_count += 1
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+        result: Dict[str, Any] = {
+            "transcript": transcript,
+            "response_text": pipeline_result.response_text,
+            "processing_ms": elapsed_ms,
+        }
+        if tts_audio is not None:
+            result["audio"] = tts_audio
+            result["audio_b64"] = base64.b64encode(tts_audio).decode("ascii")
+        return result
+
+    async def handle_audio(self, session_id: str, audio_data: bytes) -> Dict[str, Any]:
+        """레거시 하위 호환: 전체 오디오를 chunk+end로 위임."""
+        chunk_result = await self.handle_audio_chunk(session_id, audio_data)
+        if "error" in chunk_result:
+            return chunk_result
+        return await self.handle_end(session_id)
 
     # ---- Text handling (fallback) ----
 
@@ -266,6 +319,7 @@ class VoiceServer:
             except Exception as e:
                 logger.warning("Failed to stop STT stream on interrupt: %s", e)
             session.stt_handle = None
+            session.stt_stream_active = False
 
         return {"status": "interrupted"}
 

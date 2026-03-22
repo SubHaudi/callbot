@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -87,8 +88,12 @@ async def voice_websocket(websocket: WebSocket) -> None:
 
             if msg["type"] == "audio":
                 audio_bytes = base64.b64decode(msg.get("data", ""))
-                result = await voice_server.handle_audio(session_id, audio_bytes)
-                await _send_audio_result(websocket, result)
+                result = await voice_server.handle_audio_chunk(session_id, audio_bytes)
+                if "error" in result:
+                    await websocket.send_text(json.dumps(make_error(result["error"])))
+                    continue
+                # Drain partial queue
+                await _drain_partial_queue(websocket, session)
 
             elif msg["type"] == "text":
                 text = msg.get("text", "")
@@ -102,9 +107,14 @@ async def voice_websocket(websocket: WebSocket) -> None:
                 # not_playing → 무시 (ACK 불필요)
 
             elif msg["type"] == "end":
-                # end = 발화 종료 (FR-002) — 현재 버퍼 방식이므로 no-op
-                # 세션 종료는 WebSocket close로 처리
-                continue
+                # Drain remaining partials first
+                await _drain_partial_queue(websocket, session)
+                # STT final → Pipeline → TTS → response
+                result = await voice_server.handle_end(session_id)
+                if "error" in result:
+                    await websocket.send_text(json.dumps(make_error(result["error"])))
+                else:
+                    await _send_end_result(websocket, result)
 
     except WebSocketDisconnect:
         logger.info("Voice WS disconnected: session=%s", session_id)
@@ -117,21 +127,25 @@ async def voice_websocket(websocket: WebSocket) -> None:
         logger.info("Voice WS session cleaned up: session=%s", session_id)
 
 
-async def _send_audio_result(ws: WebSocket, result: Dict[str, Any]) -> None:
-    """handle_audio 결과를 FR-002 프로토콜로 전송."""
-    if "error" in result:
-        if result["error"] == "stt_failed":
-            await ws.send_text(json.dumps(make_fallback(result.get("message", ""))))
-        else:
-            await ws.send_text(json.dumps(make_error(result.get("message", result["error"]))))
-        return
+async def _drain_partial_queue(ws: WebSocket, session: Any) -> None:
+    """세션의 partial_queue에서 모든 partial transcript를 클라이언트로 전송."""
+    while True:
+        try:
+            item = session.partial_queue.get_nowait()
+            await ws.send_text(json.dumps(make_transcript(
+                text=item["text"],
+                is_final=item.get("is_final", False),
+            )))
+        except asyncio.QueueEmpty:
+            break
 
-    # transcript
+
+async def _send_end_result(ws: WebSocket, result: Dict[str, Any]) -> None:
+    """handle_end 결과를 프로토콜로 전송 (final transcript + response)."""
     transcript = result.get("transcript", "")
     if transcript:
         await ws.send_text(json.dumps(make_transcript(transcript, is_final=True)))
 
-    # response + audio
     await ws.send_text(json.dumps(make_response(
         text=result.get("response_text", ""),
         audio_b64=result.get("audio_b64", ""),
