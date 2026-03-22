@@ -385,6 +385,8 @@ const SMOOTHING_FACTOR=0.3;
 
 let ws=null,audioCtx=null,mediaStream=null,isRecording=false;
 let smoothedRMS=0;
+// VAD state
+let vadActive=false,recordingStartTime=0,speechAccumMs=0,hasSpeech=false,silenceStartTime=0,isAutoStop=false;
 
 const $=id=>document.getElementById(id);
 const chat=$('chat'),statusDot=$('statusDot'),statusLabel=$('statusLabel'),statusPill=$('statusPill');
@@ -541,6 +543,26 @@ async function startRecording(){
     let sum=0;for(let i=0;i<f32.length;i++)sum+=f32[i]*f32[i];
     const rms=Math.sqrt(sum/f32.length);
     smoothedRMS=SMOOTHING_FACTOR*rms+(1-SMOOTHING_FACTOR)*smoothedRMS;
+    // VAD logic
+    const now=performance.now();
+    if(now-recordingStartTime<VAD_GRACE_PERIOD){/* grace period — skip VAD */}
+    else{
+      const isSpeech=smoothedRMS>SILENCE_THRESHOLD;
+      if(isSpeech){
+        speechAccumMs+=(f32.length/SAMPLE_RATE)*1000;
+        if(speechAccumMs>=MIN_SPEECH_DURATION)hasSpeech=true;
+        silenceStartTime=0;
+        if(recIndicator&&recIndicator.querySelector('span'))recIndicator.querySelector('span').textContent='듣고 있어요...';
+      }else if(hasSpeech){
+        if(!silenceStartTime)silenceStartTime=now;
+        else if(now-silenceStartTime>=SILENCE_DURATION){
+          isAutoStop=true;
+          stopRecording();
+          return;
+        }
+        if(silenceStartTime&&recIndicator&&recIndicator.querySelector('span'))recIndicator.querySelector('span').textContent='전송 준비 중...';
+      }
+    }
     // Audio chunk encoding + send
     const i16=new Int16Array(f32.length);
     for(let i=0;i<f32.length;i++){const s=Math.max(-1,Math.min(1,f32[i]));i16[i]=s<0?s*0x8000:s*0x7FFF}
@@ -553,6 +575,8 @@ async function startRecording(){
   };
   source.connect(processor);processor.connect(audioCtx.destination);
   isRecording=true;
+  smoothedRMS=0;speechAccumMs=0;hasSpeech=false;silenceStartTime=0;isAutoStop=false;
+  recordingStartTime=performance.now();
   btnMic.classList.add('recording');
   btnRow.classList.add('active');
   showRecording();
