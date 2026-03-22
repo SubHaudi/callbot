@@ -70,14 +70,35 @@ def assemble_voice_server(
     Returns:
         조립된 VoiceServer 인스턴스
     """
-    raise NotImplementedError
+    from callbot.voice_io.voice_server import VoiceServer
+
+    vs = VoiceServer(
+        pipeline=pipeline,
+        stt_engine=stt_engine,
+        tts_engine=tts_engine,
+    )
+    return vs
 
 
 def init_stt_engine() -> Optional[Any]:
     """TranscribeSTTEngine 초기화. 실패 시 None (선택 의존성)."""
-    raise NotImplementedError
+    try:
+        from callbot.voice_io.transcribe_stt import TranscribeSTTEngine
+        engine = TranscribeSTTEngine()
+        logger.info("TranscribeSTTEngine 초기화 성공")
+        return engine
+    except Exception as e:
+        logger.warning("STT 엔진 초기화 실패 (텍스트 전용 모드): %s", e)
+        return None
 
 
 def init_tts_engine() -> Optional[Any]:
     """PollyTTSEngine 초기화. 실패 시 None (선택 의존성)."""
-    raise NotImplementedError
+    try:
+        from callbot.voice_io.polly_tts import PollyTTSEngine
+        engine = PollyTTSEngine()
+        logger.info("PollyTTSEngine 초기화 성공")
+        return engine
+    except Exception as e:
+        logger.warning("TTS 엔진 초기화 실패 (텍스트 전용 모드): %s", e)
+        return None
