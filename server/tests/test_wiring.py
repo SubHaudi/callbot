@@ -1,0 +1,171 @@
+"""server.tests.test_wiring — 컴포넌트 조립 검증 (mock 최소화).
+
+bootstrap.py의 조립 함수를 실제 컴포넌트로 테스트.
+DB만 mock, 나머지는 실제 객체.
+"""
+from __future__ import annotations
+
+import asyncio
+import pytest
+from unittest.mock import MagicMock
+
+from server.bootstrap import assemble_pipeline, assemble_voice_server
+
+
+class TestLifespanFailFast:
+    """_lifespan이 필수 의존성 실패 시 예외를 전파하는지 검증."""
+
+    @pytest.mark.asyncio
+    async def test_lifespan_raises_on_db_failure(self):
+        """DB 초기화 실패 시 _lifespan이 예외를 삼키지 않고 전파."""
+        import os
+        from unittest.mock import patch
+        from server.app import create_app
+
+        env = {
+            "DATABASE_URL": "postgresql://fake:fake@localhost:5432/fake",
+            "REDIS_HOST": "localhost",
+            "BEDROCK_MODEL_ID": "fake-model",
+            "BEDROCK_REGION": "us-east-1",
+        }
+        with patch.dict(os.environ, env):
+            app = create_app()
+            with patch("server.app._init_pg", side_effect=RuntimeError("DB connection failed")):
+                with pytest.raises(RuntimeError, match="DB connection failed"):
+                    async with app.router.lifespan_context(app):
+                        pass  # should not reach here
+
+
+class TestAssemblePipeline:
+    """assemble_pipeline 조립 검증."""
+
+    def test_raises_when_pg_is_none(self):
+        """DB 없으면 명시적 RuntimeError."""
+        with pytest.raises(RuntimeError, match="PostgreSQL"):
+            assemble_pipeline(
+                pg_connection=None,
+                redis_store=None,
+                bedrock_service=MagicMock(),
+            )
+
+    def test_assembles_with_mock_db(self):
+        """mock DB로 Pipeline 조립 성공 — 내부 컴포넌트가 실제 객체."""
+        mock_pg = MagicMock()
+        mock_llm = MagicMock()
+
+        pipeline = assemble_pipeline(
+            pg_connection=mock_pg,
+            redis_store=None,
+            bedrock_service=mock_llm,
+        )
+
+        assert pipeline is not None
+        assert callable(pipeline.process)
+        # 내부 컴포넌트가 실제 객체인지 확인
+        assert pipeline._pif is not None
+        assert pipeline._orchestrator is not None
+        assert pipeline._session_manager is not None
+
+    def test_pipeline_process_is_async(self):
+        """조립된 Pipeline.process()가 async 함수."""
+        mock_pg = MagicMock()
+        mock_llm = MagicMock()
+
+        pipeline = assemble_pipeline(
+            pg_connection=mock_pg,
+            redis_store=None,
+            bedrock_service=mock_llm,
+        )
+
+        assert asyncio.iscoroutinefunction(pipeline.process)
+
+
+class TestAssembleVoiceServer:
+    """assemble_voice_server 조립 검증."""
+
+    def test_voice_server_without_stt_tts(self):
+        """STT/TTS 없이 텍스트 전용 VoiceServer 생성."""
+        vs = assemble_voice_server(pipeline=MagicMock())
+        assert vs is not None
+
+    def test_voice_server_with_all_engines(self):
+        """Pipeline + STT + TTS 전체 조립 — 속성 확인."""
+        mock_stt = MagicMock()
+        mock_tts = MagicMock()
+        vs = assemble_voice_server(
+            pipeline=MagicMock(),
+            stt_engine=mock_stt,
+            tts_engine=mock_tts,
+        )
+        assert vs is not None
+        assert vs._stt is mock_stt
+        assert vs._tts is mock_tts
+
+    def test_voice_server_can_create_session(self):
+        """조립된 VoiceServer로 세션 생성 가능."""
+        vs = assemble_voice_server(pipeline=MagicMock())
+        session = vs.create_session()
+        assert session is not None
+        assert session.session_id
+
+
+class TestRouteDefense:
+    """routes.py의 pipeline None 방어 검증."""
+
+    def test_turn_returns_503_with_pipeline_not_initialized_message(self):
+        """Pipeline 미조립 시 503 + 'Pipeline not initialized' 메시지."""
+        from fastapi.testclient import TestClient
+        from fastapi import FastAPI
+        from server.routes import router as api_router
+
+        app = FastAPI()
+        app.include_router(api_router)
+        # healthy=True 설정하여 healthy 가드 통과, pipeline 가드에서 걸리게
+        app.state.healthy = True
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/api/v1/turn", json={
+            "caller_id": "test",
+            "text": "요금 조회",
+        })
+        assert resp.status_code == 503
+        assert "Pipeline not initialized" in resp.json().get("detail", "")
+
+
+class TestHandleTextNoFallbackGuard:
+    """handle_text fallback 가드 제거 + WS pipeline 방어."""
+
+    @pytest.mark.asyncio
+    async def test_handle_text_works_without_fallback_mode(self):
+        """is_text_fallback=False 상태에서 텍스트 입력 성공."""
+        from callbot.voice_io.voice_server import VoiceServer
+        from unittest.mock import AsyncMock
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.process = AsyncMock(return_value=MagicMock(
+            response_text="응답",
+            action_type="answer",
+        ))
+        mock_tts = MagicMock()
+        mock_tts.synthesize = MagicMock(return_value=b"\x00")
+
+        server = VoiceServer(pipeline=mock_pipeline, tts_engine=mock_tts)
+        session = server.create_session()
+        # NOT setting is_text_fallback — should still work
+
+        result = await server.handle_text(session.session_id, "요금 조회")
+
+        assert "error" not in result or result.get("error") != "not_in_fallback_mode"
+        assert result.get("response_text") is not None
+
+    @pytest.mark.asyncio
+    async def test_handle_text_returns_error_when_pipeline_none(self):
+        """pipeline None 시 에러 응답."""
+        from callbot.voice_io.voice_server import VoiceServer
+
+        server = VoiceServer()  # pipeline=None
+        session = server.create_session()
+
+        result = await server.handle_text(session.session_id, "요금 조회")
+
+        assert result.get("error") == "pipeline_not_configured"

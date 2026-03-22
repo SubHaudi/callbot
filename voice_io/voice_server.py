@@ -208,8 +208,8 @@ class VoiceServer:
             return {"error": "pipeline_not_configured"}
 
         try:
-            pipeline_result = await asyncio.to_thread(
-                self._pipeline.process, session_id, transcript
+            pipeline_result = await self._pipeline.process(
+                session_id=session_id, caller_id=session_id, text=transcript
             )
         except Exception as e:
             logger.warning("Pipeline failed: %s", e)
@@ -252,24 +252,25 @@ class VoiceServer:
     # ---- Text handling (fallback) ----
 
     async def handle_text(self, session_id: str, text: str) -> Dict[str, Any]:
-        """텍스트 폴백 모드에서 텍스트 입력 처리 (FR-005)."""
+        """텍스트 입력 처리. Pipeline 없으면 에러 반환."""
         session = self._sessions.get(session_id)
         if session is None:
             return {"error": "session_not_found"}
 
         session.touch()
 
-        if not session.is_text_fallback:
-            return {"error": "not_in_fallback_mode"}
-
         if not self._pipeline:
             return {"error": "pipeline_not_configured", "message": "Pipeline이 설정되지 않았습니다"}
 
         t0 = time.perf_counter()
 
-        pipeline_result = await asyncio.to_thread(
-            self._pipeline.process, session_id, text
-        )
+        try:
+            pipeline_result = await self._pipeline.process(
+                session_id=session_id, caller_id=session_id, text=text
+            )
+        except Exception as e:
+            logger.warning("Pipeline failed: %s", e)
+            return {"error": "pipeline_failed", "detail": str(e)}
 
         tts_audio = None
         if self._tts:
