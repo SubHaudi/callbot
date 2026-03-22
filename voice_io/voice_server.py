@@ -224,10 +224,15 @@ class VoiceServer:
         if self._tts:
             try:
                 session.is_tts_playing = True
-                tts_result = await asyncio.to_thread(
-                    self._tts.synthesize, pipeline_result.response_text, session_id
+                tts_result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._tts.synthesize, pipeline_result.response_text, session_id
+                    ),
+                    timeout=10.0,
                 )
                 tts_audio = tts_result.data
+            except asyncio.TimeoutError:
+                logger.warning("TTS timeout (handle_end): session=%s", session_id)
             except Exception as e:
                 logger.warning("TTS failed: %s", e)
             finally:
@@ -285,12 +290,17 @@ class VoiceServer:
         if self._tts:
             try:
                 session.is_tts_playing = True
-                tts_result = await asyncio.to_thread(
-                    self._tts.synthesize, pipeline_result.response_text, session_id
+                tts_result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._tts.synthesize, pipeline_result.response_text, session_id
+                    ),
+                    timeout=10.0,
                 )
                 tts_audio = tts_result.data
+            except asyncio.TimeoutError:
+                logger.warning("TTS timeout (handle_text): session=%s", session_id)
             except Exception as e:
-                logger.warning("TTS failed: %s", e)
+                logger.warning("TTS failed (handle_text): %s", e)
             finally:
                 session.is_tts_playing = False
 
