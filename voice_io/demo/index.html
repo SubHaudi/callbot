@@ -133,6 +133,31 @@ body{
 .msg.user .meta{color:rgba(255,255,255,0.55)}
 .msg.bot .meta{color:var(--text-tertiary)}
 
+/* Latency breakdown */
+.latency-bar{
+  display:flex;gap:2px;margin-top:8px;border-radius:6px;overflow:hidden;
+  height:6px;max-width:220px;
+}
+.latency-bar .seg{height:100%;border-radius:3px;min-width:4px;transition:width 0.3s}
+.seg-stt{background:#e8a849}
+.seg-pipeline{background:var(--primary)}
+.seg-tts{background:var(--accent)}
+
+.latency-detail{
+  display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;
+}
+.latency-item{
+  display:flex;align-items:center;gap:4px;
+  font-size:10.5px;color:var(--text-tertiary);font-weight:500;
+  letter-spacing:0.2px;
+}
+.latency-dot{
+  width:6px;height:6px;border-radius:50%;flex-shrink:0;
+}
+.latency-dot.stt{background:#e8a849}
+.latency-dot.pipeline{background:var(--primary)}
+.latency-dot.tts{background:var(--accent)}
+
 .bot-label{
   font-size:11px;color:var(--text-tertiary);font-weight:500;
   padding:0 4px;margin-bottom:2px;letter-spacing:0.3px;
@@ -396,6 +421,35 @@ function updatePartial(text){
 }
 function clearPartial(){if(partialEl){partialEl.remove();partialEl=null}}
 
+function appendLatency(msgEl,lat,totalMs){
+  const total=totalMs||Object.values(lat).reduce((a,b)=>a+b,0);
+  if(total<=0)return;
+  // Bar
+  const bar=document.createElement('div');bar.className='latency-bar';
+  const segs=[
+    {key:'stt_ms',cls:'seg-stt',label:'STT'},
+    {key:'pipeline_ms',cls:'seg-pipeline',label:'Pipeline'},
+    {key:'tts_ms',cls:'seg-tts',label:'TTS'},
+  ];
+  segs.forEach(s=>{
+    const ms=lat[s.key];if(!ms)return;
+    const d=document.createElement('div');d.className=`seg ${s.cls}`;
+    d.style.width=`${Math.max((ms/total)*100,3)}%`;d.title=`${s.label}: ${ms}ms`;
+    bar.appendChild(d);
+  });
+  msgEl.appendChild(bar);
+  // Detail
+  const detail=document.createElement('div');detail.className='latency-detail';
+  segs.forEach(s=>{
+    const ms=lat[s.key];if(!ms)return;
+    const item=document.createElement('div');item.className='latency-item';
+    const dotCls=s.key==='stt_ms'?'stt':s.key==='pipeline_ms'?'pipeline':'tts';
+    item.innerHTML=`<span class="latency-dot ${dotCls}"></span>${s.label} ${ms}ms`;
+    detail.appendChild(item);
+  });
+  msgEl.appendChild(detail);
+}
+
 function connect(){
   ws=new WebSocket(WS_URL);
   ws.onopen=()=>{
@@ -414,7 +468,9 @@ function connect(){
       if(msg.is_final){clearPartial();addMsg(msg.text,'user')}
       else updatePartial(msg.text);
     }else if(msg.type==='response'){
-      addMsg(msg.text,'bot',msg.processing_ms?`${(msg.processing_ms/1000).toFixed(1)}초`:'');
+      const metaText=msg.processing_ms?`${(msg.processing_ms/1000).toFixed(1)}초`:'';
+      const el=addMsg(msg.text,'bot',metaText);
+      if(msg.latency)appendLatency(el,msg.latency,msg.processing_ms);
       if(msg.audio)playPCM(msg.audio);
     }else if(msg.type==='interrupted'){
       addMsg('상담이 중단되었습니다','system');
