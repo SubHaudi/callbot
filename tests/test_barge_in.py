@@ -27,7 +27,7 @@ class TestBargeInHandlerProtocol:
 
     def test_mock_with_stop_playback_satisfies_protocol(self):
         """stop_playback() 메서드를 가진 객체는 BargeInHandler 프로토콜을 만족한다"""
-        mock_tts = MagicMock(spec=["stop_playback"])
+        mock_tts = MagicMock(spec=["stop_playback", "speech_start", "speech_end"])
         assert isinstance(mock_tts, BargeInHandler)
 
 

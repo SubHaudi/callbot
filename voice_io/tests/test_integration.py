@@ -63,7 +63,9 @@ class TestCreateSTTEngineIntegration:
     def test_returns_stt_vendor_adapter_instance(self):
         config = _make_config()
         engine = create_stt_engine(config, client=_mock_stt_client())
-        assert isinstance(engine, STTVendorAdapter)
+        from callbot.voice_io.fallback_stt import FallbackSTTEngine
+        assert isinstance(engine, FallbackSTTEngine)
+        assert isinstance(engine._primary, STTVendorAdapter)
 
     def test_stt_adapter_registered_in_registry(self):
         assert "aws-transcribe" in _STT_VENDORS
@@ -175,16 +177,14 @@ class TestVendorLifespan:
 class TestFallbackVendorInitialization:
     """폴백 벤더 설정 시 (primary, fallback) 튜플 반환 확인."""
 
-    def test_stt_fallback_returns_both_adapters(self):
+    def test_stt_fallback_returns_fallback_engine(self):
         config = _make_config(
             stt_fallback_vendor="aws-transcribe",
         )
         result = create_stt_engine(config, client=_mock_stt_client())
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-        primary, fallback = result
-        assert isinstance(primary, STTVendorAdapter)
-        assert isinstance(fallback, STTVendorAdapter)
+        from callbot.voice_io.fallback_stt import FallbackSTTEngine
+        assert isinstance(result, FallbackSTTEngine)
+        assert isinstance(result._primary, STTVendorAdapter)
 
     def test_tts_fallback_returns_both_adapters(self):
         config = _make_config(

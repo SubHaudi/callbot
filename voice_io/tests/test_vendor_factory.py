@@ -115,14 +115,19 @@ class TestCreateSTTEngine:
         register_stt_vendor("test-stt", _DummySTTAdapter)
         config = _make_config(stt_vendor="test-stt")
         engine = create_stt_engine(config)
-        assert isinstance(engine, _DummySTTAdapter)
-        assert engine.config is config
+        # Phase F: create_stt_engine now wraps in FallbackSTTEngine
+        from callbot.voice_io.fallback_stt import FallbackSTTEngine
+        assert isinstance(engine, FallbackSTTEngine)
+        assert isinstance(engine._primary, _DummySTTAdapter)
+        assert engine._primary.config is config
 
     def test_passes_kwargs_to_adapter(self):
         register_stt_vendor("test-stt", _DummySTTAdapter)
         config = _make_config(stt_vendor="test-stt")
         engine = create_stt_engine(config, threshold=0.5)
-        assert engine.kwargs == {"threshold": 0.5}
+        from callbot.voice_io.fallback_stt import FallbackSTTEngine
+        assert isinstance(engine, FallbackSTTEngine)
+        assert engine._primary.kwargs == {"threshold": 0.5}
 
     def test_unsupported_vendor_raises_valueerror(self):
         with pytest.raises(ValueError, match="Unsupported STT vendor 'unknown'"):
@@ -134,16 +139,15 @@ class TestCreateSTTEngine:
         with pytest.raises(ValueError, match=r"Supported: \['alpha', 'beta'\]"):
             create_stt_engine(_make_config(stt_vendor="unknown"))
 
-    def test_fallback_returns_tuple(self):
+    def test_fallback_returns_wrapped(self):
+        """Phase F: fallback vendor가 있어도 FallbackSTTEngine으로 래핑 반환."""
         register_stt_vendor("primary", _DummySTTAdapter)
         register_stt_vendor("fallback", _DummyFallbackSTT)
         config = _make_config(stt_vendor="primary", stt_fallback_vendor="fallback")
         result = create_stt_engine(config)
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-        primary, fallback = result
-        assert isinstance(primary, _DummySTTAdapter)
-        assert isinstance(fallback, _DummyFallbackSTT)
+        from callbot.voice_io.fallback_stt import FallbackSTTEngine
+        assert isinstance(result, FallbackSTTEngine)
+        assert isinstance(result._primary, _DummySTTAdapter)
 
     def test_fallback_unsupported_raises_valueerror(self):
         register_stt_vendor("primary", _DummySTTAdapter)
@@ -238,8 +242,10 @@ def test_stt_registered_vendor_returns_instance(vendor_id: str):
     register_stt_vendor(vendor_id, _DummySTTAdapter)
     config = _make_config(stt_vendor=vendor_id)
     engine = create_stt_engine(config)
-    assert isinstance(engine, _DummySTTAdapter)
-    assert engine.config is config
+    from callbot.voice_io.fallback_stt import FallbackSTTEngine
+    assert isinstance(engine, FallbackSTTEngine)
+    assert isinstance(engine._primary, _DummySTTAdapter)
+    assert engine._primary.config is config
 
 
 @given(vendor_id=_vendor_id_st)

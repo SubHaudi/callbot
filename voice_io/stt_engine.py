@@ -52,6 +52,16 @@ class STTEngine(ABC):
         """바지인 감지 시 STT 즉시 활성화 (P95 200ms)."""
         ...
 
+    @abstractmethod
+    def stop_stream(self, handle: StreamHandle) -> None:
+        """스트리밍 세션을 정상 종료하고 리소스를 해제한다."""
+        ...
+
+    @abstractmethod
+    def cancel(self, handle: StreamHandle) -> None:
+        """스트리밍 세션을 즉시 취소하고 리소스를 해제한다."""
+        ...
+
 
 # ---------------------------------------------------------------------------
 # 기본 구현체 (벤더 SDK 없이 동작, 테스트용)
@@ -121,3 +131,11 @@ class STTEngineBase(STTEngine):
         """바지인 활성화 — handler가 등록된 경우 TTS stop_playback()을 호출한다."""
         if self._barge_in_handler is not None:
             self._barge_in_handler.stop_playback(session_id)
+
+    def stop_stream(self, handle: StreamHandle) -> None:
+        """스트리밍 세션을 정상 종료하고 버퍼를 정리한다."""
+        self._buffers.pop(handle.stream_id, None)
+
+    def cancel(self, handle: StreamHandle) -> None:
+        """스트리밍 세션을 즉시 취소하고 버퍼를 정리한다."""
+        self._buffers.pop(handle.stream_id, None)

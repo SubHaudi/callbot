@@ -13,5 +13,23 @@ class BargeInHandler(Protocol):
     """
 
     def stop_playback(self, session_id: str) -> None:
-        """바지인 감지 시 TTS 재생을 즉시 중단한다 (P95 200ms)."""
+        """바지인 감지 시 TTS 재생을 즉시 중단한다 (P95 200ms).
+
+        세션 상태를 stopped 플래그로 전환 (세션 삭제가 아님, M-30).
+        이미 stopped인 세션에 대해 다시 호출 시 무시.
+        """
+        ...
+
+    def speech_start(self, session_id: str) -> None:
+        """사용자 발화 시작 감지 콜백 (M-29).
+
+        VAD가 음성 활동을 감지했을 때 호출.
+        """
+        ...
+
+    def speech_end(self, session_id: str) -> None:
+        """사용자 발화 종료 감지 콜백 (M-29).
+
+        VAD가 침묵을 감지하여 발화 종료로 판단했을 때 호출.
+        """
         ...

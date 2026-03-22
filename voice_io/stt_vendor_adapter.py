@@ -306,6 +306,25 @@ class STTVendorAdapter(STTEngine):
             except Exception as exc:
                 logger.warning("Failed to close SDK client: %s", exc)
 
+    def stop_stream(self, handle: StreamHandle) -> None:
+        """스트리밍 세션을 정상 종료하고 리소스를 해제한다."""
+        stream = self._streams.pop(handle.stream_id, None)
+        if stream is not None and hasattr(stream, "close"):
+            try:
+                stream.close()
+            except Exception as exc:
+                logger.warning("Failed to stop stream %s: %s", handle.stream_id, exc)
+        self._buffers.pop(handle.stream_id, None)
+        self._cached_finals.pop(handle.stream_id, None)
+        self._start_times.pop(handle.stream_id, None)
+
+    def cancel(self, handle: StreamHandle) -> None:
+        """스트리밍 세션을 즉시 취소하고 리소스를 해제한다."""
+        self._streams.pop(handle.stream_id, None)
+        self._buffers.pop(handle.stream_id, None)
+        self._cached_finals.pop(handle.stream_id, None)
+        self._start_times.pop(handle.stream_id, None)
+
 
 # 벤더 팩토리에 AWS Transcribe 어댑터 등록
 from callbot.voice_io.vendor_factory import register_stt_vendor
