@@ -80,7 +80,7 @@ def _init_redis(config: ServerConfig) -> Any:
         port=config.redis_port,
         decode_responses=True,
         ssl=use_ssl,
-        ssl_cert_reqs=None if use_ssl else None,
+        ssl_cert_reqs=None,
         socket_connect_timeout=5,
     )
     # 연결 확인
@@ -200,6 +200,17 @@ def create_app() -> FastAPI:
     # Voice WebSocket router
     from server.voice_ws import router as voice_router
     app.include_router(voice_router)
+
+    # Demo static files
+    import pathlib
+    from fastapi.responses import HTMLResponse
+    demo_html = pathlib.Path(__file__).resolve().parent.parent / "voice_io" / "demo" / "index.html"
+
+    @app.get("/demo", response_class=HTMLResponse)
+    async def demo_page():
+        if demo_html.exists():
+            return demo_html.read_text(encoding="utf-8")
+        return HTMLResponse("<h1>Demo not found</h1>", status_code=404)
 
     # Error handlers
     @app.exception_handler(SessionNotFoundError)

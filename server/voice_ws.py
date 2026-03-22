@@ -9,7 +9,7 @@ import asyncio
 import base64
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -38,10 +38,12 @@ def make_transcript(text: str, is_final: bool = True) -> Dict[str, Any]:
     return {"type": "transcript", "text": text, "is_final": is_final}
 
 
-def make_response(text: str, audio_b64: str = "", processing_ms: int = 0) -> Dict[str, Any]:
+def make_response(text: str, audio_b64: str = "", processing_ms: int = 0, latency: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
     resp: Dict[str, Any] = {"type": "response", "text": text, "processing_ms": processing_ms}
     if audio_b64:
         resp["audio"] = audio_b64
+    if latency:
+        resp["latency"] = latency
     return resp
 
 
@@ -80,6 +82,7 @@ async def voice_websocket(websocket: WebSocket) -> None:
     try:
         while True:
             raw = await websocket.receive_text()
+            logger.info("Voice WS recv: session=%s, raw=%s", session_id, raw[:200])
             msg = parse_client_message(raw)
 
             if msg["type"] == "error":
@@ -150,6 +153,7 @@ async def _send_end_result(ws: WebSocket, result: Dict[str, Any]) -> None:
         text=result.get("response_text", ""),
         audio_b64=result.get("audio_b64", ""),
         processing_ms=result.get("processing_ms", 0),
+        latency=result.get("latency"),
     )))
 
 
@@ -163,4 +167,5 @@ async def _send_text_result(ws: WebSocket, result: Dict[str, Any]) -> None:
         text=result.get("response_text", ""),
         audio_b64=result.get("audio_b64", ""),
         processing_ms=result.get("processing_ms", 0),
+        latency=result.get("latency"),
     )))

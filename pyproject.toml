@@ -15,6 +15,7 @@ dependencies = [
     "cryptography>=41.0.0",
     "PyJWT>=2.8.0",
     "pybreaker>=1.0.0",
+    "amazon-transcribe>=0.6.0",
 ]
 
 [project.optional-dependencies]

@@ -29,7 +29,7 @@ class PollyTTSEngine(TTSEngine):
         polly_client: Optional[Any] = None,
         voice_id: str = "Seoyeon",
         engine: str = "neural",
-        sample_rate: str = "24000",
+        sample_rate: str = "16000",
     ) -> None:
         self._voice_id = voice_id
         self._engine = engine

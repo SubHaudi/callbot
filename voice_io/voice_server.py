@@ -31,6 +31,7 @@ class VoiceSession:
     stt_handle: Any = None  # STT 스트리밍 핸들
     stt_stream_active: bool = False
     partial_queue: Any = None  # asyncio.Queue — initialized in __post_init__
+    pipeline_session_id: Optional[str] = None  # Pipeline(Redis) 세션 ID — 첫 턴에서 생성
 
     def __post_init__(self) -> None:
         self._validate_vad_silence(self.vad_silence_sec)
@@ -203,14 +204,22 @@ class VoiceServer:
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
             return {"transcript": "", "response_text": "", "processing_ms": elapsed_ms}
 
+        stt_ms = int((time.perf_counter() - t0) * 1000)
+        latency: Dict[str, int] = {"stt_ms": stt_ms}
+
         # Pipeline
         if self._pipeline is None:
             return {"error": "pipeline_not_configured"}
 
         try:
+            pipeline_session_id = session.pipeline_session_id
+            t_pipe = time.perf_counter()
             pipeline_result = await self._pipeline.process(
-                session_id=session_id, caller_id=session_id, text=transcript
+                session_id=pipeline_session_id, caller_id=session_id, text=transcript
             )
+            latency["pipeline_ms"] = int((time.perf_counter() - t_pipe) * 1000)
+            if pipeline_session_id is None:
+                session.pipeline_session_id = pipeline_result.session_id
         except Exception as e:
             logger.warning("Pipeline failed: %s", e)
             return {"error": "pipeline_failed", "detail": str(e)}
@@ -220,10 +229,18 @@ class VoiceServer:
         if self._tts:
             try:
                 session.is_tts_playing = True
-                tts_result = await asyncio.to_thread(
-                    self._tts.synthesize, pipeline_result.response_text, session_id
+                t_tts = time.perf_counter()
+                tts_result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._tts.synthesize, pipeline_result.response_text, session_id
+                    ),
+                    timeout=10.0,
                 )
+                latency["tts_ms"] = int((time.perf_counter() - t_tts) * 1000)
                 tts_audio = tts_result.data
+            except asyncio.TimeoutError:
+                logger.warning("TTS timeout (handle_end): session=%s", session_id)
+                latency["tts_ms"] = 10000
             except Exception as e:
                 logger.warning("TTS failed: %s", e)
             finally:
@@ -236,6 +253,7 @@ class VoiceServer:
             "transcript": transcript,
             "response_text": pipeline_result.response_text,
             "processing_ms": elapsed_ms,
+            "latency": latency,
         }
         if tts_audio is not None:
             result["audio"] = tts_audio
@@ -263,11 +281,19 @@ class VoiceServer:
             return {"error": "pipeline_not_configured", "message": "Pipeline이 설정되지 않았습니다"}
 
         t0 = time.perf_counter()
+        latency: Dict[str, int] = {}
 
         try:
+            # 첫 턴: pipeline_session_id가 없으면 None → 세션 자동 생성
+            pipeline_session_id = session.pipeline_session_id
+            t_pipe = time.perf_counter()
             pipeline_result = await self._pipeline.process(
-                session_id=session_id, caller_id=session_id, text=text
+                session_id=pipeline_session_id, caller_id=session_id, text=text
             )
+            latency["pipeline_ms"] = int((time.perf_counter() - t_pipe) * 1000)
+            # 첫 턴 후 pipeline session_id 저장
+            if pipeline_session_id is None:
+                session.pipeline_session_id = pipeline_result.session_id
         except Exception as e:
             logger.warning("Pipeline failed: %s", e)
             return {"error": "pipeline_failed", "detail": str(e)}
@@ -276,12 +302,20 @@ class VoiceServer:
         if self._tts:
             try:
                 session.is_tts_playing = True
-                tts_result = await asyncio.to_thread(
-                    self._tts.synthesize, pipeline_result.response_text, session_id
+                t_tts = time.perf_counter()
+                tts_result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._tts.synthesize, pipeline_result.response_text, session_id
+                    ),
+                    timeout=10.0,
                 )
+                latency["tts_ms"] = int((time.perf_counter() - t_tts) * 1000)
                 tts_audio = tts_result.data
+            except asyncio.TimeoutError:
+                logger.warning("TTS timeout (handle_text): session=%s", session_id)
+                latency["tts_ms"] = 10000
             except Exception as e:
-                logger.warning("TTS failed: %s", e)
+                logger.warning("TTS failed (handle_text): %s", e)
             finally:
                 session.is_tts_playing = False
 
@@ -291,6 +325,7 @@ class VoiceServer:
         result: Dict[str, Any] = {
             "response_text": pipeline_result.response_text,
             "processing_ms": elapsed_ms,
+            "latency": latency,
         }
         if tts_audio is not None:
             result["audio"] = tts_audio
