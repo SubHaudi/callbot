@@ -41,7 +41,7 @@ input[type=text] { flex: 1; padding: 10px 14px; border: 1px solid #444; border-r
   <button id="btnSend" class="btn btn-send" disabled>전송</button>
 </div>
 <script>
-const WS_URL = `ws://${location.host}/api/v1/ws/voice`;
+const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/v1/ws/voice`;
 const CHUNK_SIZE = 3200; // 100ms @ 16kHz 16bit mono
 const SAMPLE_RATE = 16000;
 

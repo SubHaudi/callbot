@@ -40,6 +40,7 @@ async def test_pipeline_processes_safe_input():
     mock_session_ctx = MagicMock()
     mock_session_ctx.session_id = "sess-123"
     mock_session_ctx.pending_intent = None
+    mock_session_ctx.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = mock_session_ctx
 
     mock_llm = MagicMock()
@@ -78,6 +79,7 @@ async def test_pipeline_handles_injection():
     mock_session_ctx = MagicMock()
     mock_session_ctx.session_id = "sess-456"
     mock_session_ctx.pending_intent = None
+    mock_session_ctx.pending_switch_intent = None
     mock_session_mgr._store = MagicMock()
     mock_session_mgr._store.load.return_value = mock_session_ctx
 
@@ -115,6 +117,7 @@ async def test_pipeline_creates_session_when_missing():
     mock_session_ctx = MagicMock()
     mock_session_ctx.session_id = "new-sess"
     mock_session_ctx.pending_intent = None
+    mock_session_ctx.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = mock_session_ctx
 
     mock_llm = MagicMock()
@@ -151,6 +154,7 @@ async def test_pipeline_handles_escalation():
     mock_session_ctx = MagicMock()
     mock_session_ctx.session_id = "sess-789"
     mock_session_ctx.pending_intent = None
+    mock_session_ctx.pending_switch_intent = None
     mock_session_mgr._store = MagicMock()
     mock_session_mgr._store.load.return_value = mock_session_ctx
 
@@ -196,6 +200,7 @@ async def test_pipeline_passes_api_result_to_llm():
     mock_session_ctx = MagicMock()
     mock_session_ctx.session_id = "sess-api"
     mock_session_ctx.pending_intent = None
+    mock_session_ctx.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = mock_session_ctx
 
     mock_api_result = MagicMock()
@@ -247,6 +252,7 @@ async def test_pipeline_applies_pii_masking():
     mock_session_ctx = MagicMock()
     mock_session_ctx.session_id = "sess-pii"
     mock_session_ctx.pending_intent = None
+    mock_session_ctx.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = mock_session_ctx
 
     mock_llm = MagicMock()
@@ -287,6 +293,7 @@ async def test_pipeline_session_end_response():
     mock_session_ctx = MagicMock()
     mock_session_ctx.session_id = "sess-end"
     mock_session_ctx.pending_intent = None
+    mock_session_ctx.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = mock_session_ctx
 
     mock_llm = MagicMock()
@@ -333,6 +340,7 @@ async def test_plan_change_3_turn_flow():
     session = MagicMock()
     session.session_id = "sess-plan"
     session.pending_intent = None
+    session.pending_switch_intent = None
     session.plan_list_context = None
     mock_session_mgr.create_session.return_value = session
 
@@ -391,6 +399,7 @@ async def test_plan_change_cancel_mid_flow():
     session = MagicMock()
     session.session_id = "sess-cancel"
     session.pending_intent = None
+    session.pending_switch_intent = None
     session.plan_list_context = None
     mock_session_mgr.create_session.return_value = session
 
@@ -442,6 +451,7 @@ async def test_addon_cancel_success():
     session = MagicMock()
     session.session_id = "sess-addon"
     session.pending_intent = None
+    session.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = session
 
     pipeline = TurnPipeline(
@@ -489,6 +499,7 @@ async def test_addon_cancel_non_cancelable():
     session = MagicMock()
     session.session_id = "sess-noncx"
     session.pending_intent = None
+    session.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = session
 
     pipeline = TurnPipeline(
@@ -548,6 +559,7 @@ async def test_pipeline_regex_masking_applied():
     mock_session_ctx = MagicMock()
     mock_session_ctx.session_id = "sess-regex"
     mock_session_ctx.pending_intent = None
+    mock_session_ctx.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = mock_session_ctx
 
     mock_llm = MagicMock()
@@ -595,6 +607,7 @@ async def test_plan_change_invalid_selection_retry():
     session = MagicMock()
     session.session_id = "sess-retry"
     session.pending_intent = None
+    session.pending_switch_intent = None
     session.plan_list_context = None
     mock_session_mgr.create_session.return_value = session
 
@@ -642,6 +655,7 @@ async def test_plan_change_confirm_reject():
     session = MagicMock()
     session.session_id = "sess-reject"
     session.pending_intent = None
+    session.pending_switch_intent = None
     session.plan_list_context = None
     mock_session_mgr.create_session.return_value = session
 
@@ -693,6 +707,7 @@ async def test_addon_cancel_mid_flow_cancel():
     session = MagicMock()
     session.session_id = "sess-addon-cancel"
     session.pending_intent = None
+    session.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = session
 
     pipeline = TurnPipeline(
@@ -739,6 +754,7 @@ async def test_addon_cancel_unrecognized_name():
     session = MagicMock()
     session.session_id = "sess-addon-unknown"
     session.pending_intent = None
+    session.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = session
 
     pipeline = TurnPipeline(
@@ -803,6 +819,7 @@ async def test_session_limit_extra_turns_escalate():
     session = MagicMock()
     session.session_id = "sess-extra"
     session.pending_intent = None
+    session.pending_switch_intent = None
     mock_session_mgr.create_session.return_value = session
 
     pipeline = TurnPipeline(

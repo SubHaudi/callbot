@@ -92,6 +92,14 @@ class RedisSessionStore(SessionStoreBase):
         except Exception as exc:
             raise RedisConnectionError(f"Redis EXISTS failed: {exc}") from exc
 
+    def count(self) -> int:
+        """활성 세션 수 (키 패턴 매칭)."""
+        try:
+            keys = self._redis.keys(f"{self._prefix}:*")
+            return len(keys)
+        except Exception:
+            return 0
+
     def health_check(self) -> bool:
         """PING → True/False. 예외 발생 시 False 반환."""
         try:
