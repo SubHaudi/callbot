@@ -153,28 +153,6 @@ async def _send_end_result(ws: WebSocket, result: Dict[str, Any]) -> None:
     )))
 
 
-async def _send_audio_result(ws: WebSocket, result: Dict[str, Any]) -> None:
-    """handle_audio 결과를 FR-002 프로토콜로 전송."""
-    if "error" in result:
-        if result["error"] == "stt_failed":
-            await ws.send_text(json.dumps(make_fallback(result.get("message", ""))))
-        else:
-            await ws.send_text(json.dumps(make_error(result.get("message", result["error"]))))
-        return
-
-    # transcript
-    transcript = result.get("transcript", "")
-    if transcript:
-        await ws.send_text(json.dumps(make_transcript(transcript, is_final=True)))
-
-    # response + audio
-    await ws.send_text(json.dumps(make_response(
-        text=result.get("response_text", ""),
-        audio_b64=result.get("audio_b64", ""),
-        processing_ms=result.get("processing_ms", 0),
-    )))
-
-
 async def _send_text_result(ws: WebSocket, result: Dict[str, Any]) -> None:
     """handle_text 결과를 FR-002 프로토콜로 전송."""
     if "error" in result:

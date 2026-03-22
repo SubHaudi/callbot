@@ -268,3 +268,30 @@ class TestLatencyBenchmark:
         assert "processing_ms" in result
         assert isinstance(result["processing_ms"], int)
         assert result["processing_ms"] >= 0
+
+
+# ---- R2 fixes: text fallback ----
+
+class TestTextFallbackGuard:
+    def test_audio_chunk_rejected_in_fallback_mode(self):
+        stt = _make_mock_stt()
+        vs = VoiceServer(stt_engine=stt, pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        session.is_text_fallback = True
+        result = asyncio.get_event_loop().run_until_complete(
+            vs.handle_audio_chunk(session.session_id, b"\x00" * 3200)
+        )
+        assert result["error"] == "text_fallback_mode"
+        stt.start_stream.assert_not_called()
+
+    def test_stt_fallback_error_triggers_text_mode(self):
+        from callbot.voice_io.fallback_stt import STTFallbackError
+        stt = _make_mock_stt()
+        stt.get_final_result.side_effect = STTFallbackError("STT failed")
+        vs = VoiceServer(stt_engine=stt, pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(vs.handle_audio_chunk(session.session_id, b"\x00" * 3200))
+        result = loop.run_until_complete(vs.handle_end(session.session_id))
+        assert result["error"] == "stt_failed"
+        assert session.is_text_fallback is True
