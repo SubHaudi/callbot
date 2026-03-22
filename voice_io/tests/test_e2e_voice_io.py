@@ -27,7 +27,7 @@ import json
 import time
 import pytest
 import subprocess
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, Any, List, Tuple
 
 # ── Skip 조건 ──────────────────────────────────────────────
@@ -338,7 +338,8 @@ class TestVoiceServerE2EMock:
     @pytest.fixture
     def mock_pipeline(self):
         pipeline = MagicMock()
-        pipeline.process.return_value = MagicMock(response_text="네, 확인하겠습니다.")
+        result = MagicMock(response_text="네, 확인하겠습니다.")
+        pipeline.process = AsyncMock(return_value=result)
         return pipeline
 
     @pytest.fixture
@@ -379,7 +380,9 @@ class TestVoiceServerE2EMock:
         assert result["transcript"] == "잔액 확인해 주세요"
         assert result["response_text"] == "네, 확인하겠습니다."
         assert len(result["audio"]) > 0
-        mock_pipeline.process.assert_called_once_with(session.session_id, "잔액 확인해 주세요")
+        mock_pipeline.process.assert_called_once_with(
+            session_id=session.session_id, caller_id=session.session_id, text="잔액 확인해 주세요"
+        )
 
     @pytest.mark.asyncio
     async def test_barge_in(self, mock_stt, mock_tts, mock_pipeline):
@@ -420,7 +423,8 @@ class TestVoiceServerHybrid:
         )
 
         pipeline = MagicMock()
-        pipeline.process.return_value = MagicMock(response_text="감사합니다")
+        result = MagicMock(response_text="감사합니다")
+        pipeline.process = AsyncMock(return_value=result)
 
         tts = PollyTTSEngine()
         server = VoiceServer(stt_engine=stt, tts_engine=tts, pipeline=pipeline)

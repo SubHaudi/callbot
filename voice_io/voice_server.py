@@ -208,8 +208,8 @@ class VoiceServer:
             return {"error": "pipeline_not_configured"}
 
         try:
-            pipeline_result = await asyncio.to_thread(
-                self._pipeline.process, session_id, transcript
+            pipeline_result = await self._pipeline.process(
+                session_id=session_id, caller_id=session_id, text=transcript
             )
         except Exception as e:
             logger.warning("Pipeline failed: %s", e)
@@ -264,8 +264,8 @@ class VoiceServer:
 
         t0 = time.perf_counter()
 
-        pipeline_result = await asyncio.to_thread(
-            self._pipeline.process, session_id, text
+        pipeline_result = await self._pipeline.process(
+            session_id=session_id, caller_id=session_id, text=text
         )
 
         tts_audio = None
