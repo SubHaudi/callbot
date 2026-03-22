@@ -9,7 +9,7 @@ import asyncio
 import pytest
 from unittest.mock import MagicMock
 
-from server.bootstrap import assemble_pipeline
+from server.bootstrap import assemble_pipeline, assemble_voice_server
 
 
 class TestLifespanFailFast:
@@ -78,3 +78,32 @@ class TestAssemblePipeline:
         )
 
         assert asyncio.iscoroutinefunction(pipeline.process)
+
+
+class TestAssembleVoiceServer:
+    """assemble_voice_server 조립 검증."""
+
+    def test_voice_server_without_stt_tts(self):
+        """STT/TTS 없이 텍스트 전용 VoiceServer 생성."""
+        vs = assemble_voice_server(pipeline=MagicMock())
+        assert vs is not None
+
+    def test_voice_server_with_all_engines(self):
+        """Pipeline + STT + TTS 전체 조립 — 속성 확인."""
+        mock_stt = MagicMock()
+        mock_tts = MagicMock()
+        vs = assemble_voice_server(
+            pipeline=MagicMock(),
+            stt_engine=mock_stt,
+            tts_engine=mock_tts,
+        )
+        assert vs is not None
+        assert vs._stt is mock_stt
+        assert vs._tts is mock_tts
+
+    def test_voice_server_can_create_session(self):
+        """조립된 VoiceServer로 세션 생성 가능."""
+        vs = assemble_voice_server(pipeline=MagicMock())
+        session = vs.create_session()
+        assert session is not None
+        assert session.session_id
