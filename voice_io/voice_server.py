@@ -125,7 +125,40 @@ class VoiceServer:
 
     async def handle_audio_chunk(self, session_id: str, chunk: bytes) -> Dict[str, Any]:
         """오디오 청크를 STT 스트림에 전달. 첫 청크 시 스트림 자동 생성."""
-        raise NotImplementedError("TASK-005에서 구현")
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"error": "session_not_found"}
+        session.touch()
+
+        if self._stt is None:
+            return {"error": "stt_not_configured"}
+
+        # 첫 청크: STT 스트림 자동 생성
+        if not session.stt_stream_active:
+            try:
+                handle = await asyncio.to_thread(
+                    self._stt.start_stream, session_id
+                )
+                session.stt_handle = handle
+                session.stt_stream_active = True
+            except Exception as e:
+                logger.warning("STT start_stream failed: %s", e)
+                return {"error": "stt_start_failed", "detail": str(e)}
+
+        # 청크 전달 + partial result
+        try:
+            partial = await asyncio.to_thread(
+                self._stt.process_audio_chunk, session.stt_handle, chunk
+            )
+            if partial and partial.text:
+                await session.partial_queue.put({
+                    "text": partial.text,
+                    "is_final": getattr(partial, "is_final", False),
+                })
+            return {"status": "ok"}
+        except Exception as e:
+            logger.warning("STT process_audio_chunk failed: %s", e)
+            return {"error": "stt_chunk_failed", "detail": str(e)}
 
     async def handle_end(self, session_id: str) -> Dict[str, Any]:
         """발화 종료 — STT 최종 결과 → Pipeline → TTS → 응답."""
