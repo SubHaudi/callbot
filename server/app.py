@@ -93,7 +93,15 @@ def _init_redis(config: ServerConfig) -> Any:
 
 
 def _init_bedrock(config: ServerConfig) -> Any:
-    """Bedrock 서비스 초기화."""
+    """Bedrock 서비스 초기화. CALLBOT_LLM_BACKEND=fake이면 mock 반환."""
+    import os
+    if os.getenv("CALLBOT_LLM_BACKEND") == "fake":
+        from unittest.mock import MagicMock
+        mock = MagicMock()
+        mock.generate.return_value = "테스트 응답입니다."
+        logger.info("Bedrock fake 모드 — mock LLM 사용")
+        return mock
+
     from callbot.llm_engine.bedrock_service import BedrockConfig, BedrockClaudeService
     bedrock_config = BedrockConfig(
         model_id=config.bedrock_model_id,
@@ -124,8 +132,6 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             pg_provider=lambda: app.state.pg_connection,
             redis_provider=lambda: app.state.redis_store,
         )
-        app.state.healthy = True
-        logger.info("서버 초기화 완료: environment=%s", config.environment)
 
         # Pipeline 조립 (bootstrap.py)
         from server.bootstrap import assemble_pipeline, assemble_voice_server, init_stt_engine, init_tts_engine
@@ -144,6 +150,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             tts_engine=tts_engine,
         )
         app.state.voice_server.start_background_cleanup()
+
+        # 모든 조립 완료 후 healthy 설정
+        app.state.healthy = True
+        logger.info("서버 초기화 완료: environment=%s", config.environment)
     except Exception as exc:
         logger.critical("서버 초기화 실패 — 서버 시작 불가: %s", exc)
         raise
