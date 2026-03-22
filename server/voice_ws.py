@@ -80,6 +80,7 @@ async def voice_websocket(websocket: WebSocket) -> None:
     try:
         while True:
             raw = await websocket.receive_text()
+            logger.info("Voice WS recv: session=%s, raw=%s", session_id, raw[:200])
             msg = parse_client_message(raw)
 
             if msg["type"] == "error":
