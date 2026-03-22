@@ -33,16 +33,17 @@ async def test_startup_sets_healthy_state():
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_env")
-async def test_startup_failure_sets_unhealthy_state():
-    """DB 연결 실패 시 app.state.healthy = False."""
+async def test_startup_failure_raises_and_prevents_boot():
+    """DB 연결 실패 시 fail-fast — 서버 부팅 중단 (예외 전파)."""
     with patch("server.app._init_pg", side_effect=Exception("refused")), \
          patch("server.app._init_redis", return_value=MagicMock()), \
          patch("server.app._init_bedrock", return_value=MagicMock()):
 
         from server.app import create_app
         app = create_app()
-        async with app.router.lifespan_context(app):
-            assert app.state.healthy is False
+        with pytest.raises(Exception, match="refused"):
+            async with app.router.lifespan_context(app):
+                pass  # should not reach here
 
 
 @pytest.mark.asyncio
