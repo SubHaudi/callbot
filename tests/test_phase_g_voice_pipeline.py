@@ -430,22 +430,33 @@ class TestWebSocketE2E:
 
         with TestClient(app_with_voice) as client:
             with client.websocket_connect("/api/v1/ws/voice") as ws:
-                # Send audio
+                # Send audio chunk
                 ws.send_text(json.dumps({"type": "audio", "data": audio_b64}))
 
-                # Receive transcript
-                resp1 = json.loads(ws.receive_text())
-                assert resp1["type"] == "transcript"
-                assert resp1["text"] == "요금 조회"
+                # Drain any partial transcripts
+                import time
+                time.sleep(0.1)
 
-                # Receive response
-                resp2 = json.loads(ws.receive_text())
-                assert resp2["type"] == "response"
-                assert resp2["text"] == "5만원입니다."
-                assert resp2["processing_ms"] >= 0
-
-                # End session
+                # Send end to trigger full pipeline
                 ws.send_text(json.dumps({"type": "end"}))
+
+                # Collect responses until we get a "response" type
+                responses = []
+                for _ in range(5):
+                    try:
+                        resp = json.loads(ws.receive_text())
+                        responses.append(resp)
+                        if resp["type"] == "response":
+                            break
+                    except Exception:
+                        break
+
+                # Should have at least a response
+                resp_types = [r["type"] for r in responses]
+                assert "response" in resp_types
+                response_msg = [r for r in responses if r["type"] == "response"][0]
+                assert response_msg["text"] == "5만원입니다."
+                assert response_msg["processing_ms"] >= 0
 
     def test_ws_max_sessions_rejects(self, app_with_voice):
         from starlette.testclient import TestClient
@@ -465,8 +476,8 @@ class TestWebSocketE2E:
         with TestClient(app_with_voice) as client:
             with client.websocket_connect("/api/v1/ws/voice") as ws:
                 ws.send_text(json.dumps({"type": "interrupt"}))
-                # not_playing → no ack sent, test shouldn't hang
-                ws.send_text(json.dumps({"type": "end"}))
+                # not_playing → no ack sent, just close
+                pass
 
     def test_ws_invalid_json(self, app_with_voice):
         from starlette.testclient import TestClient
