@@ -1,10 +1,11 @@
 """callbot.voice_io.transcribe_stt — AWS Transcribe Streaming STT 엔진 (FR-001)
 
-boto3 Transcribe Streaming 클라이언트 DI. 한국어 ko-KR 고정.
-PCM 16kHz 16bit mono 입력. 스트리밍 세션 관리 (버퍼 + partial results).
+Phase 1: mock 클라이언트 주입 시 기존 mock 경로, 미주입 시 실제 AWS Transcribe Streaming API.
+한국어 ko-KR. PCM 16kHz 16bit mono 입력.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -16,14 +17,48 @@ from callbot.voice_io.models import PartialResult, STTResult, StreamHandle
 logger = logging.getLogger(__name__)
 
 
+class _ResultHandler:
+    """Transcribe Streaming 이벤트 핸들러 — partial/final 결과 수집."""
+
+    def __init__(self, output_stream: Any) -> None:
+        self._output_stream = output_stream
+        self.final_text = ""
+        self.confidence_sum = 0.0
+        self.confidence_count = 0
+
+    async def handle_events(self) -> None:
+        async for event in self._output_stream:
+            # SDK model: TranscriptEvent.transcript.results[]
+            transcript = getattr(event, "transcript", None)
+            if transcript is None:
+                continue
+            results = getattr(transcript, "results", None) or []
+            for result in results:
+                is_partial = getattr(result, "is_partial", True)
+                alternatives = getattr(result, "alternatives", None) or []
+                for alt in alternatives:
+                    if not is_partial:
+                        text = getattr(alt, "transcript", "")
+                        self.final_text += text or ""
+                        items = getattr(alt, "items", None) or []
+                        for item in items:
+                            conf = getattr(item, "confidence", None)
+                            if conf is not None:
+                                self.confidence_sum += float(conf)
+                                self.confidence_count += 1
+
+    @property
+    def avg_confidence(self) -> float:
+        if self.confidence_count == 0:
+            return 0.0
+        return self.confidence_sum / self.confidence_count
+
+
 class TranscribeSTTEngine(STTEngine):
     """AWS Transcribe Streaming 기반 실시간 STT 엔진.
 
-    - 언어: ko-KR
-    - 입력: PCM 16kHz 16bit mono
-    - 스트리밍: start_stream → process_audio_chunk(반복) → get_final_result
-    - partial result 지원
-    - MVP: 일괄 처리 방식, 프로덕션에서 amazon-transcribe-streaming-sdk 전환 예정
+    - transcribe_client 주입 시: mock 모드 (기존 테스트 호환)
+    - transcribe_client=None: 실제 AWS Transcribe Streaming API 사용
     """
 
     def __init__(
@@ -38,19 +73,7 @@ class TranscribeSTTEngine(STTEngine):
         self._sample_rate = sample_rate
         self._confidence_threshold = confidence_threshold
         self._region = region
-
-        if transcribe_client is not None:
-            self._client = transcribe_client
-        else:
-            try:
-                import boto3
-                self._client = boto3.client(
-                    "transcribe",
-                    region_name=region,
-                )
-            except Exception as e:
-                logger.warning("boto3 transcribe client init failed: %s", e)
-                self._client = None
+        self._mock_client = transcribe_client  # None이면 실제 API
 
         # 세션별 오디오 버퍼 + partial results
         self._buffers: Dict[str, bytes] = {}
@@ -63,11 +86,7 @@ class TranscribeSTTEngine(STTEngine):
         return StreamHandle(session_id=session_id, stream_id=stream_id)
 
     def process_audio_chunk(self, handle: StreamHandle, audio: bytes) -> PartialResult:
-        """오디오 청크 누적. partial result 반환.
-
-        MVP: 버퍼 누적만 수행. 프로덕션에서는 async 스트리밍으로 
-        청크 단위 전송 + partial result 실시간 수신.
-        """
+        """오디오 청크 누적. partial result 반환."""
         self._buffers[handle.stream_id] = self._buffers.get(handle.stream_id, b"") + audio
         return PartialResult(text=self._partials.get(handle.stream_id, ""), is_final=False)
 
@@ -81,9 +100,6 @@ class TranscribeSTTEngine(STTEngine):
                 text="", confidence=0.0, processing_time_ms=0,
                 threshold=self._confidence_threshold,
             )
-
-        if self._client is None:
-            raise RuntimeError("Transcribe client not available")
 
         t0 = time.perf_counter()
 
@@ -102,20 +118,49 @@ class TranscribeSTTEngine(STTEngine):
             raise
 
     def _transcribe_sync(self, audio_data: bytes) -> Dict[str, Any]:
-        """동기식 Transcribe 호출 (MVP).
+        """동기식 Transcribe 호출.
 
-        Mock-friendly interface: _client.transcribe(audio_data, ...) 호출.
-        프로덕션에서는 amazon-transcribe-streaming-sdk의
-        start_stream_transcription으로 교체 예정.
+        - mock_client 주입 시: 기존 mock 경로 (테스트 호환)
+        - mock_client=None: 실제 AWS Transcribe Streaming API
         """
-        response = self._client.transcribe(
-            audio_data,
+        if self._mock_client is not None:
+            response = self._mock_client.transcribe(
+                audio_data,
+                language_code=self._language_code,
+                sample_rate=self._sample_rate,
+            )
+            return {
+                "text": response.get("text", ""),
+                "confidence": response.get("confidence", 0.0),
+            }
+
+        return asyncio.run(self._transcribe_streaming(audio_data))
+
+    async def _transcribe_streaming(self, audio_data: bytes) -> Dict[str, Any]:
+        """실제 AWS Transcribe Streaming API 호출."""
+        from amazon_transcribe.client import TranscribeStreamingClient
+
+        client = TranscribeStreamingClient(region=self._region)
+        stream = await client.start_stream_transcription(
             language_code=self._language_code,
-            sample_rate=self._sample_rate,
+            media_sample_rate_hz=self._sample_rate,
+            media_encoding="pcm",
         )
+
+        # 청크 단위 전송 (100ms = 3200 bytes at 16kHz 16bit mono)
+        CHUNK_SIZE = 3200
+        for i in range(0, len(audio_data), CHUNK_SIZE):
+            chunk = audio_data[i:i + CHUNK_SIZE]
+            await stream.input_stream.send_audio_event(audio_chunk=chunk)
+        await stream.input_stream.end_stream()
+
+        # 결과 수신 — SDK의 TranscriptResultStream 사용
+        handler = _ResultHandler(stream.output_stream)
+        await handler.handle_events()
+
         return {
-            "text": response.get("text", ""),
-            "confidence": response.get("confidence", 0.0),
+            "text": handler.final_text.strip(),
+            "confidence": handler.avg_confidence,
         }
 
     def activate_barge_in(self, session_id: str) -> None:
@@ -128,3 +173,10 @@ class TranscribeSTTEngine(STTEngine):
     def cancel(self, handle: StreamHandle) -> None:
         self._buffers.pop(handle.stream_id, None)
         self._partials.pop(handle.stream_id, None)
+
+    def health_check(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        self._buffers.clear()
+        self._partials.clear()
