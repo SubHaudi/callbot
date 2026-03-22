@@ -1,6 +1,7 @@
 """Phase F TASK-006: TranscribeSTTEngine mock boto3 테스트."""
 from __future__ import annotations
 
+import unittest.mock
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -83,20 +84,20 @@ class TestTranscribeSTTEngine:
         assert result.confidence == 0.0
         mock_transcribe.transcribe.assert_not_called()
 
-    def test_no_mock_client_uses_real_api(self):
-        """(5) mock_client 미주입 시 실제 Transcribe Streaming API 경로로 진입."""
+    def test_no_mock_client_uses_streaming_path(self):
+        """(5) mock_client 미주입 시 _transcribe_streaming 경로로 진입."""
         engine = TranscribeSTTEngine(transcribe_client=None)
         assert engine._mock_client is None
-        # mock 경로가 아닌 streaming 경로를 타는지 확인
         handle = engine.start_stream("sess-1")
         engine.process_audio_chunk(handle, b"\x00" * 3200)
-        # 실제 API 호출 — 짧은 무음이므로 빈 결과 또는 예외 가능
-        try:
+        # _transcribe_streaming이 호출되는지 확인 (실제 AWS 호출은 mock)
+        with unittest.mock.patch.object(
+            engine, "_transcribe_streaming",
+            return_value={"text": "테스트", "confidence": 0.9},
+        ) as mock_streaming:
             result = engine.get_final_result(handle)
-            # 무음이면 빈 텍스트
-            assert result.text == "" or isinstance(result.text, str)
-        except Exception:
-            pass  # AWS 연결 실패 환경에서도 테스트 통과
+            mock_streaming.assert_called_once()
+            assert result.text == "테스트"
 
     def test_language_code_ko_kr(self, mock_transcribe):
         """(6) language_code=ko-KR 확인."""

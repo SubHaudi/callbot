@@ -39,7 +39,11 @@ class _ResultHandler:
                 for alt in alternatives:
                     if not is_partial:
                         text = getattr(alt, "transcript", "")
-                        self.final_text += text or ""
+                        if text:
+                            if self.final_text:
+                                self.final_text += " " + text
+                            else:
+                                self.final_text = text
                         items = getattr(alt, "items", None) or []
                         for item in items:
                             conf = getattr(item, "confidence", None)
@@ -68,11 +72,13 @@ class TranscribeSTTEngine(STTEngine):
         sample_rate: int = 16000,
         confidence_threshold: float = 0.5,
         region: str = "ap-northeast-2",
+        streaming_timeout: float = 10.0,
     ) -> None:
         self._language_code = language_code
         self._sample_rate = sample_rate
         self._confidence_threshold = confidence_threshold
         self._region = region
+        self._streaming_timeout = streaming_timeout
         self._mock_client = transcribe_client  # None이면 실제 API
 
         # 세션별 오디오 버퍼 + partial results
@@ -134,7 +140,19 @@ class TranscribeSTTEngine(STTEngine):
                 "confidence": response.get("confidence", 0.0),
             }
 
-        return asyncio.run(self._transcribe_streaming(audio_data))
+        # 이미 실행 중인 이벤트 루프가 있으면 새 스레드에서 실행
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self._transcribe_streaming(audio_data))
+                return future.result(timeout=self._streaming_timeout)
+        else:
+            return asyncio.run(self._transcribe_streaming(audio_data))
 
     async def _transcribe_streaming(self, audio_data: bytes) -> Dict[str, Any]:
         """실제 AWS Transcribe Streaming API 호출."""
@@ -154,9 +172,12 @@ class TranscribeSTTEngine(STTEngine):
             await stream.input_stream.send_audio_event(audio_chunk=chunk)
         await stream.input_stream.end_stream()
 
-        # 결과 수신 — SDK의 TranscriptResultStream 사용
+        # 결과 수신 — SDK의 TranscriptResultStream 사용 (타임아웃 적용)
         handler = _ResultHandler(stream.output_stream)
-        await handler.handle_events()
+        try:
+            await asyncio.wait_for(handler.handle_events(), timeout=self._streaming_timeout)
+        except asyncio.TimeoutError:
+            logger.warning("Transcribe streaming timed out after %.1fs", self._streaming_timeout)
 
         return {
             "text": handler.final_text.strip(),
