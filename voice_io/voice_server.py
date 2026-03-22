@@ -381,6 +381,7 @@ class VoiceServer:
             except Exception as e:
                 logger.warning("Failed to stop STT stream on interrupt: %s", e)
             session.stt_handle = None
+            session.stt_stream_active = False
 
         return {"status": "interrupted"}
 

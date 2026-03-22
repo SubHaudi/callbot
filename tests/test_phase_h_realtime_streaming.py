@@ -178,3 +178,29 @@ class TestDisconnectCleanup:
         session = vs.create_session()
         # should not raise
         vs.end_session(session.session_id)
+
+
+# ---- TASK-011B: barge-in STT cleanup ----
+
+class TestBargeInSTTCleanup:
+    def test_interrupt_stops_active_stt_stream(self):
+        stt = _make_mock_stt()
+        vs = VoiceServer(stt_engine=stt, tts_engine=_make_mock_tts(), pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(vs.handle_audio_chunk(session.session_id, b"\x00" * 3200))
+        assert session.stt_stream_active
+        session.is_tts_playing = True  # simulate TTS playing
+        result = loop.run_until_complete(vs.handle_interrupt(session.session_id))
+        assert result["status"] == "interrupted"
+        assert not session.stt_stream_active
+        assert session.stt_handle is None
+        stt.stop_stream.assert_called_once()
+
+    def test_interrupt_without_stream_no_error(self):
+        vs = VoiceServer(pipeline=_make_mock_pipeline())
+        session = vs.create_session()
+        result = asyncio.get_event_loop().run_until_complete(
+            vs.handle_interrupt(session.session_id)
+        )
+        assert result["status"] == "not_playing"
