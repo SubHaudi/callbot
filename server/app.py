@@ -80,7 +80,7 @@ def _init_redis(config: ServerConfig) -> Any:
         port=config.redis_port,
         decode_responses=True,
         ssl=use_ssl,
-        ssl_cert_reqs=None if use_ssl else None,
+        ssl_cert_reqs="none" if use_ssl else None,
         socket_connect_timeout=5,
     )
     # 연결 확인
