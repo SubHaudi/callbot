@@ -29,7 +29,33 @@ def assemble_pipeline(
     Raises:
         RuntimeError: 필수 의존성(pg_connection)이 None인 경우
     """
-    raise NotImplementedError
+    if pg_connection is None:
+        raise RuntimeError("PostgreSQL connection required for Pipeline assembly")
+
+    from callbot.nlu.prompt_injection_filter import PromptInjectionFilter
+    from callbot.orchestrator.conversation_orchestrator import ConversationOrchestrator
+    from callbot.session.session_manager import SessionManager
+    from callbot.session.session_store import InMemorySessionStore
+    from callbot.session.repository import CallbotDBRepository
+    from server.pipeline import TurnPipeline
+
+    pif = PromptInjectionFilter()
+    repository = CallbotDBRepository(db=pg_connection)
+    session_store = InMemorySessionStore()
+    session_manager = SessionManager(
+        repository=repository,
+        session_store=session_store,
+    )
+    orchestrator = ConversationOrchestrator()
+
+    pipeline = TurnPipeline(
+        pif=pif,
+        orchestrator=orchestrator,
+        session_manager=session_manager,
+        llm_engine=bedrock_service,
+    )
+    logger.info("Pipeline 조립 완료")
+    return pipeline
 
 
 def assemble_voice_server(
