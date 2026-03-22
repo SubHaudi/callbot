@@ -2,63 +2,174 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>Callbot Voice Demo — Phase H</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Callbot Demo</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
-.header { padding: 12px 20px; background: #16213e; display: flex; align-items: center; gap: 12px; }
-.header h1 { font-size: 18px; flex: 1; }
-.status { font-size: 13px; padding: 4px 12px; border-radius: 12px; }
-.status.connected { background: #0f5132; color: #75b798; }
-.status.disconnected { background: #842029; color: #ea868f; }
-.chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-.msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
-.msg.user { align-self: flex-end; background: #0a3d62; }
-.msg.bot { align-self: flex-start; background: #2d3436; }
-.msg .meta { font-size: 11px; color: #888; margin-top: 4px; }
-.partial { align-self: flex-end; color: #888; font-style: italic; font-size: 13px; padding: 4px 14px; }
-.controls { padding: 16px 20px; background: #16213e; display: flex; gap: 12px; align-items: center; }
-.btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: 0.2s; }
-.btn:disabled { opacity: 0.4; cursor: default; }
-.btn-mic { background: #e74c3c; color: white; }
-.btn-mic.recording { background: #27ae60; animation: pulse 1s infinite; }
-.btn-stop { background: #f39c12; color: white; }
-.btn-send { background: #3498db; color: white; }
-input[type=text] { flex: 1; padding: 10px 14px; border: 1px solid #444; border-radius: 8px; background: #2d3436; color: #eee; font-size: 14px; }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+:root {
+  --bg: #0f1117; --surface: #1a1d28; --surface2: #252836;
+  --primary: #6c5ce7; --primary-hover: #7d6ff0;
+  --danger: #e74c3c; --success: #00b894;
+  --text: #f0f0f5; --text-muted: #8b8fa3;
+  --radius: 16px;
+}
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column; height: 100dvh;
+}
+
+/* Header */
+.header {
+  padding: 12px 16px; background: var(--surface);
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+.header h1 { font-size: 16px; font-weight: 600; flex: 1; }
+.badge {
+  font-size: 11px; padding: 3px 10px; border-radius: 20px;
+  font-weight: 500; letter-spacing: 0.3px;
+}
+.badge.on { background: rgba(0,184,148,0.15); color: var(--success); }
+.badge.off { background: rgba(231,76,60,0.15); color: var(--danger); }
+
+/* Chat */
+.chat {
+  flex: 1; overflow-y: auto; padding: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+  -webkit-overflow-scrolling: touch;
+}
+.msg {
+  max-width: 85%; padding: 10px 14px; border-radius: var(--radius);
+  font-size: 15px; line-height: 1.55; word-break: break-word;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.msg.user { align-self: flex-end; background: var(--primary); border-bottom-right-radius: 4px; }
+.msg.bot { align-self: flex-start; background: var(--surface2); border-bottom-left-radius: 4px; }
+.msg.system { align-self: center; background: transparent; color: var(--text-muted); font-size: 13px; }
+.msg .meta { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 4px; }
+.partial {
+  align-self: flex-end; color: var(--text-muted);
+  font-style: italic; font-size: 13px; padding: 4px 14px;
+}
+
+/* Controls */
+.controls {
+  padding: 12px 16px; background: var(--surface);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+.input-row {
+  display: flex; gap: 8px; align-items: center;
+}
+.input-row input {
+  flex: 1; padding: 12px 16px; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 24px; background: var(--surface2); color: var(--text);
+  font-size: 15px; outline: none; transition: border 0.2s;
+  min-width: 0;
+}
+.input-row input:focus { border-color: var(--primary); }
+.input-row input::placeholder { color: var(--text-muted); }
+
+.btn {
+  width: 44px; height: 44px; border: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.2s; flex-shrink: 0;
+  font-size: 18px;
+}
+.btn:disabled { opacity: 0.3; cursor: default; }
+.btn-send { background: var(--primary); color: white; }
+.btn-send:not(:disabled):hover { background: var(--primary-hover); }
+.btn-mic { background: var(--surface2); color: var(--text); border: 1px solid rgba(255,255,255,0.1); }
+.btn-mic.recording {
+  background: var(--danger); color: white; border-color: transparent;
+  animation: pulse 1.5s ease infinite;
+}
+.btn-interrupt { background: var(--surface2); color: #f39c12; border: 1px solid rgba(255,255,255,0.1); }
+
+.btn-row {
+  display: flex; gap: 8px; margin-top: 8px; justify-content: center;
+  display: none; /* hidden by default, show when recording */
+}
+.btn-row.active { display: flex; }
+.btn-pill {
+  padding: 8px 16px; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px; background: var(--surface2); color: var(--text);
+  font-size: 13px; cursor: pointer; transition: 0.2s;
+}
+.btn-pill:hover { background: rgba(255,255,255,0.1); }
+.btn-pill.danger { border-color: var(--danger); color: var(--danger); }
+
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.4); } 50% { box-shadow: 0 0 0 8px rgba(231,76,60,0); } }
+
+/* Welcome */
+.welcome {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex: 1; gap: 12px; color: var(--text-muted); padding: 20px;
+}
+.welcome-icon { font-size: 48px; }
+.welcome-text { font-size: 14px; text-align: center; line-height: 1.6; }
+
+/* Safe area (iPhone notch) */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .controls { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+
+/* Desktop wider */
+@media (min-width: 600px) {
+  .chat { padding: 24px 10%; }
+  .msg { max-width: 65%; }
+}
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>🎙️ Callbot Voice Demo</h1>
-  <span id="status" class="status disconnected">Disconnected</span>
+  <h1>📞 Callbot</h1>
+  <span id="status" class="badge off">연결 끊김</span>
 </div>
-<div id="chat" class="chat"></div>
+
+<div id="chat" class="chat">
+  <div class="welcome" id="welcome">
+    <div class="welcome-icon">📞</div>
+    <div class="welcome-text">
+      통신사 AI 상담 데모<br>
+      텍스트를 입력하거나 🎤 버튼으로 음성 상담을 시작하세요
+    </div>
+  </div>
+</div>
+
 <div class="controls">
-  <button id="btnMic" class="btn btn-mic" disabled>🎤 녹음</button>
-  <button id="btnStop" class="btn btn-stop" disabled>⏹️ Barge-in</button>
-  <input id="txtInput" type="text" placeholder="텍스트 입력 (폴백)..." />
-  <button id="btnSend" class="btn btn-send" disabled>전송</button>
+  <div class="input-row">
+    <button id="btnMic" class="btn btn-mic" disabled title="음성 녹음">🎤</button>
+    <input id="txtInput" type="text" placeholder="메시지를 입력하세요..." disabled />
+    <button id="btnSend" class="btn btn-send" disabled title="전송">↑</button>
+  </div>
+  <div id="btnRow" class="btn-row">
+    <button id="btnEndRec" class="btn-pill">⏹️ 녹음 종료</button>
+    <button id="btnInterrupt" class="btn-pill danger">🚫 중단</button>
+  </div>
 </div>
+
 <script>
 const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/v1/ws/voice`;
-const CHUNK_SIZE = 3200; // 100ms @ 16kHz 16bit mono
+const CHUNK_SIZE = 3200;
 const SAMPLE_RATE = 16000;
 
-let ws = null;
-let audioCtx = null;
-let mediaStream = null;
-let workletNode = null;
-let isRecording = false;
+let ws = null, audioCtx = null, mediaStream = null, isRecording = false;
 
-const chat = document.getElementById('chat');
-const statusEl = document.getElementById('status');
-const btnMic = document.getElementById('btnMic');
-const btnStop = document.getElementById('btnStop');
-const btnSend = document.getElementById('btnSend');
-const txtInput = document.getElementById('txtInput');
+const $ = id => document.getElementById(id);
+const chat = $('chat'), statusEl = $('status');
+const btnMic = $('btnMic'), btnSend = $('btnSend'), txtInput = $('txtInput');
+const btnRow = $('btnRow'), btnEndRec = $('btnEndRec'), btnInterrupt = $('btnInterrupt');
+const welcome = $('welcome');
 
-function addMessage(text, cls, meta) {
+function hideWelcome() { if (welcome) welcome.style.display = 'none'; }
+
+function addMsg(text, cls, meta) {
+  hideWelcome();
   const el = document.createElement('div');
   el.className = `msg ${cls}`;
   el.textContent = text;
@@ -70,6 +181,7 @@ function addMessage(text, cls, meta) {
 
 let partialEl = null;
 function updatePartial(text) {
+  hideWelcome();
   if (!partialEl) { partialEl = document.createElement('div'); partialEl.className = 'partial'; chat.appendChild(partialEl); }
   partialEl.textContent = `🗣️ ${text}`;
   chat.scrollTop = chat.scrollHeight;
@@ -79,34 +191,29 @@ function clearPartial() { if (partialEl) { partialEl.remove(); partialEl = null;
 function connect() {
   ws = new WebSocket(WS_URL);
   ws.onopen = () => {
-    statusEl.textContent = 'Connected';
-    statusEl.className = 'status connected';
-    btnMic.disabled = false;
-    btnSend.disabled = false;
+    statusEl.textContent = '연결됨'; statusEl.className = 'badge on';
+    btnMic.disabled = false; btnSend.disabled = false; txtInput.disabled = false;
   };
   ws.onclose = () => {
-    statusEl.textContent = 'Disconnected';
-    statusEl.className = 'status disconnected';
-    btnMic.disabled = true;
-    btnSend.disabled = true;
-    btnStop.disabled = true;
+    statusEl.textContent = '연결 끊김'; statusEl.className = 'badge off';
+    btnMic.disabled = true; btnSend.disabled = true; txtInput.disabled = true;
     setTimeout(connect, 3000);
   };
   ws.onerror = () => ws.close();
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
     if (msg.type === 'transcript') {
-      if (msg.is_final) { clearPartial(); addMessage(msg.text, 'user'); }
-      else { updatePartial(msg.text); }
+      if (msg.is_final) { clearPartial(); addMsg(msg.text, 'user'); }
+      else updatePartial(msg.text);
     } else if (msg.type === 'response') {
-      addMessage(msg.text, 'bot', `${msg.processing_ms}ms`);
+      addMsg(msg.text, 'bot', msg.processing_ms ? `${msg.processing_ms}ms` : '');
       if (msg.audio) playPCM(msg.audio);
     } else if (msg.type === 'interrupted') {
-      addMessage('⏹️ 중단됨', 'bot');
+      addMsg('중단됨', 'system');
     } else if (msg.type === 'fallback') {
-      addMessage(`⚠️ ${msg.message}`, 'bot');
+      addMsg(msg.message, 'system');
     } else if (msg.type === 'error') {
-      addMessage(`❌ ${msg.message}`, 'bot');
+      addMsg(`오류: ${msg.message}`, 'system');
     }
   };
 }
@@ -119,63 +226,57 @@ function playPCM(b64) {
   const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
   const buf = ctx.createBuffer(1, float32.length, SAMPLE_RATE);
   buf.copyToChannel(float32, 0);
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  src.connect(ctx.destination);
-  src.start();
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  src.connect(ctx.destination); src.start();
 }
 
 async function startRecording() {
-  audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
-  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true } });
+  try {
+    audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true }
+    });
+  } catch (e) {
+    addMsg('마이크 접근 권한이 필요합니다', 'system');
+    return;
+  }
   const source = audioCtx.createMediaStreamSource(mediaStream);
-
-  // ScriptProcessorNode fallback (AudioWorklet needs HTTPS)
   const processor = audioCtx.createScriptProcessor(4096, 1, 1);
   processor.onaudioprocess = (e) => {
     if (!isRecording) return;
-    const float32 = e.inputBuffer.getChannelData(0);
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      const s = Math.max(-1, Math.min(1, float32[i]));
-      int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    // Send in CHUNK_SIZE pieces
-    const bytes = new Uint8Array(int16.buffer);
+    const f32 = e.inputBuffer.getChannelData(0);
+    const i16 = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) { const s = Math.max(-1, Math.min(1, f32[i])); i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF; }
+    const bytes = new Uint8Array(i16.buffer);
     for (let off = 0; off < bytes.length; off += CHUNK_SIZE) {
       const chunk = bytes.slice(off, off + CHUNK_SIZE);
-      if (chunk.length === CHUNK_SIZE && ws && ws.readyState === 1) {
-        const b64 = btoa(String.fromCharCode(...chunk));
-        ws.send(JSON.stringify({ type: 'audio', data: b64 }));
-      }
+      if (chunk.length === CHUNK_SIZE && ws && ws.readyState === 1)
+        ws.send(JSON.stringify({ type: 'audio', data: btoa(String.fromCharCode(...chunk)) }));
     }
   };
-  source.connect(processor);
-  processor.connect(audioCtx.destination);
+  source.connect(processor); processor.connect(audioCtx.destination);
 
   isRecording = true;
-  btnMic.textContent = '⏹️ 종료';
-  btnMic.classList.add('recording');
-  btnStop.disabled = false;
+  btnMic.classList.add('recording'); btnMic.textContent = '🔴';
+  btnRow.classList.add('active');
+  addMsg('녹음 중...', 'system');
 }
 
 function stopRecording() {
   isRecording = false;
   if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
   if (audioCtx) audioCtx.close();
-  btnMic.textContent = '🎤 녹음';
-  btnMic.classList.remove('recording');
-  btnStop.disabled = true;
-  // Send end to trigger STT final + pipeline
+  btnMic.classList.remove('recording'); btnMic.textContent = '🎤';
+  btnRow.classList.remove('active');
   if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'end' }));
 }
 
 btnMic.onclick = () => { if (isRecording) stopRecording(); else startRecording(); };
-btnStop.onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'interrupt' })); };
+btnInterrupt.onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'interrupt' })); };
+btnEndRec.onclick = () => stopRecording();
 btnSend.onclick = () => {
-  const text = txtInput.value.trim();
-  if (!text) return;
-  addMessage(text, 'user');
+  const text = txtInput.value.trim(); if (!text) return;
+  addMsg(text, 'user');
   ws.send(JSON.stringify({ type: 'text', text }));
   txtInput.value = '';
 };
