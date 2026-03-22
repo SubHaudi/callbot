@@ -259,9 +259,6 @@ class VoiceServer:
 
         session.touch()
 
-        if not session.is_text_fallback:
-            return {"error": "not_in_fallback_mode"}
-
         if not self._pipeline:
             return {"error": "pipeline_not_configured", "message": "Pipeline이 설정되지 않았습니다"}
 
