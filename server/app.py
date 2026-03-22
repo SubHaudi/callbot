@@ -194,6 +194,10 @@ def create_app() -> FastAPI:
     # API router
     app.include_router(api_router)
 
+    # Voice WebSocket router
+    from server.voice_ws import router as voice_router
+    app.include_router(voice_router)
+
     # Error handlers
     @app.exception_handler(SessionNotFoundError)
     async def _session_not_found(request: Request, exc: SessionNotFoundError):
