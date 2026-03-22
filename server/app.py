@@ -127,27 +127,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.healthy = True
         logger.info("서버 초기화 완료: environment=%s", config.environment)
 
-        # Pipeline 조립
-        from callbot.nlu.prompt_injection_filter import PromptInjectionFilter
-        from callbot.orchestrator.conversation_orchestrator import ConversationOrchestrator
-        from callbot.session.session_manager import SessionManager
-        from callbot.session.session_store import InMemorySessionStore
-        from callbot.session.repository import CallbotDBRepository
-        from server.pipeline import TurnPipeline
-
-        pif = PromptInjectionFilter()
-        repository = CallbotDBRepository(db=app.state.pg_connection)
-        session_store = InMemorySessionStore()
-        session_manager = SessionManager(
-            repository=repository,
-            session_store=session_store,
-        )
-        orchestrator = ConversationOrchestrator()
-        app.state.pipeline = TurnPipeline(
-            pif=pif,
-            orchestrator=orchestrator,
-            session_manager=session_manager,
-            llm_engine=app.state.bedrock_service,
+        # Pipeline 조립 (bootstrap.py)
+        from server.bootstrap import assemble_pipeline
+        app.state.pipeline = assemble_pipeline(
+            pg_connection=app.state.pg_connection,
+            redis_store=app.state.redis_store,
+            bedrock_service=app.state.bedrock_service,
         )
 
         # VoiceServer 조립 (pipeline 초기화 후)
