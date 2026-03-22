@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -128,14 +129,14 @@ async def voice_websocket(websocket: WebSocket) -> None:
 
 async def _drain_partial_queue(ws: WebSocket, session: Any) -> None:
     """세션의 partial_queue에서 모든 partial transcript를 클라이언트로 전송."""
-    while not session.partial_queue.empty():
+    while True:
         try:
             item = session.partial_queue.get_nowait()
             await ws.send_text(json.dumps(make_transcript(
                 text=item["text"],
                 is_final=item.get("is_final", False),
             )))
-        except Exception:
+        except asyncio.QueueEmpty:
             break
 
 
