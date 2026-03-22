@@ -31,6 +31,7 @@ class VoiceSession:
     stt_handle: Any = None  # STT 스트리밍 핸들
     stt_stream_active: bool = False
     partial_queue: Any = None  # asyncio.Queue — initialized in __post_init__
+    pipeline_session_id: Optional[str] = None  # Pipeline(Redis) 세션 ID — 첫 턴에서 생성
 
     def __post_init__(self) -> None:
         self._validate_vad_silence(self.vad_silence_sec)
@@ -208,9 +209,12 @@ class VoiceServer:
             return {"error": "pipeline_not_configured"}
 
         try:
+            pipeline_session_id = session.pipeline_session_id
             pipeline_result = await self._pipeline.process(
-                session_id=session_id, caller_id=session_id, text=transcript
+                session_id=pipeline_session_id, caller_id=session_id, text=transcript
             )
+            if pipeline_session_id is None:
+                session.pipeline_session_id = pipeline_result.session_id
         except Exception as e:
             logger.warning("Pipeline failed: %s", e)
             return {"error": "pipeline_failed", "detail": str(e)}
@@ -265,9 +269,14 @@ class VoiceServer:
         t0 = time.perf_counter()
 
         try:
+            # 첫 턴: pipeline_session_id가 없으면 None → 세션 자동 생성
+            pipeline_session_id = session.pipeline_session_id
             pipeline_result = await self._pipeline.process(
-                session_id=session_id, caller_id=session_id, text=text
+                session_id=pipeline_session_id, caller_id=session_id, text=text
             )
+            # 첫 턴 후 pipeline session_id 저장
+            if pipeline_session_id is None:
+                session.pipeline_session_id = pipeline_result.session_id
         except Exception as e:
             logger.warning("Pipeline failed: %s", e)
             return {"error": "pipeline_failed", "detail": str(e)}
