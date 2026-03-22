@@ -3,284 +3,496 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Callbot Demo</title>
+<title>AnyTelecom AI 상담</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --bg: #0f1117; --surface: #1a1d28; --surface2: #252836;
-  --primary: #6c5ce7; --primary-hover: #7d6ff0;
-  --danger: #e74c3c; --success: #00b894;
-  --text: #f0f0f5; --text-muted: #8b8fa3;
-  --radius: 16px;
-}
-html, body { height: 100%; overflow: hidden; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  background: var(--bg); color: var(--text);
-  display: flex; flex-direction: column; height: 100dvh;
-}
-
-/* Header */
-.header {
-  padding: 12px 16px; background: var(--surface);
-  display: flex; align-items: center; gap: 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  flex-shrink: 0;
-}
-.header h1 { font-size: 16px; font-weight: 600; flex: 1; }
-.badge {
-  font-size: 11px; padding: 3px 10px; border-radius: 20px;
-  font-weight: 500; letter-spacing: 0.3px;
-}
-.badge.on { background: rgba(0,184,148,0.15); color: var(--success); }
-.badge.off { background: rgba(231,76,60,0.15); color: var(--danger); }
-
-/* Chat */
-.chat {
-  flex: 1; overflow-y: auto; padding: 16px;
-  display: flex; flex-direction: column; gap: 10px;
-  -webkit-overflow-scrolling: touch;
-}
-.msg {
-  max-width: 85%; padding: 10px 14px; border-radius: var(--radius);
-  font-size: 15px; line-height: 1.55; word-break: break-word;
-  animation: fadeIn 0.2s ease;
-}
-@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.msg.user { align-self: flex-end; background: var(--primary); border-bottom-right-radius: 4px; }
-.msg.bot { align-self: flex-start; background: var(--surface2); border-bottom-left-radius: 4px; }
-.msg.system { align-self: center; background: transparent; color: var(--text-muted); font-size: 13px; }
-.msg .meta { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 4px; }
-.partial {
-  align-self: flex-end; color: var(--text-muted);
-  font-style: italic; font-size: 13px; padding: 4px 14px;
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#faf8f5;
+  --surface:#fff;
+  --surface-alt:#f2eeea;
+  --border:rgba(45,35,25,0.08);
+  --primary:#c05d2e;
+  --primary-soft:rgba(192,93,46,0.08);
+  --primary-hover:#a84e24;
+  --accent:#2d6a4f;
+  --text:#2d2319;
+  --text-secondary:#7a6e60;
+  --text-tertiary:#a69d93;
+  --radius:20px;
+  --radius-sm:12px;
+  --shadow-sm:0 1px 3px rgba(45,35,25,0.06);
+  --shadow-md:0 4px 24px rgba(45,35,25,0.08);
 }
 
-/* Controls */
-.controls {
-  padding: 12px 16px; background: var(--surface);
-  border-top: 1px solid rgba(255,255,255,0.06);
-  flex-shrink: 0;
-}
-.input-row {
-  display: flex; gap: 8px; align-items: center;
-}
-.input-row input {
-  flex: 1; padding: 12px 16px; border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 24px; background: var(--surface2); color: var(--text);
-  font-size: 15px; outline: none; transition: border 0.2s;
-  min-width: 0;
-}
-.input-row input:focus { border-color: var(--primary); }
-.input-row input::placeholder { color: var(--text-muted); }
-
-.btn {
-  width: 44px; height: 44px; border: none; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: all 0.2s; flex-shrink: 0;
-  font-size: 18px;
-}
-.btn:disabled { opacity: 0.3; cursor: default; }
-.btn-send { background: var(--primary); color: white; }
-.btn-send:not(:disabled):hover { background: var(--primary-hover); }
-.btn-mic { background: var(--surface2); color: var(--text); border: 1px solid rgba(255,255,255,0.1); }
-.btn-mic.recording {
-  background: var(--danger); color: white; border-color: transparent;
-  animation: pulse 1.5s ease infinite;
-}
-.btn-interrupt { background: var(--surface2); color: #f39c12; border: 1px solid rgba(255,255,255,0.1); }
-
-.btn-row {
-  display: flex; gap: 8px; margin-top: 8px; justify-content: center;
-  display: none; /* hidden by default, show when recording */
-}
-.btn-row.active { display: flex; }
-.btn-pill {
-  padding: 8px 16px; border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px; background: var(--surface2); color: var(--text);
-  font-size: 13px; cursor: pointer; transition: 0.2s;
-}
-.btn-pill:hover { background: rgba(255,255,255,0.1); }
-.btn-pill.danger { border-color: var(--danger); color: var(--danger); }
-
-@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.4); } 50% { box-shadow: 0 0 0 8px rgba(231,76,60,0); } }
-
-/* Welcome */
-.welcome {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  flex: 1; gap: 12px; color: var(--text-muted); padding: 20px;
-}
-.welcome-icon { font-size: 48px; }
-.welcome-text { font-size: 14px; text-align: center; line-height: 1.6; }
-
-/* Safe area (iPhone notch) */
-@supports (padding-bottom: env(safe-area-inset-bottom)) {
-  .controls { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+html,body{height:100%;overflow:hidden}
+body{
+  font-family:'Noto Sans KR','Outfit',system-ui,sans-serif;
+  background:var(--bg);color:var(--text);
+  display:flex;flex-direction:column;height:100dvh;
+  -webkit-font-smoothing:antialiased;
 }
 
-/* Desktop wider */
-@media (min-width: 600px) {
-  .chat { padding: 24px 10%; }
-  .msg { max-width: 65%; }
+/* ── Header ── */
+.header{
+  padding:14px 20px;
+  display:flex;align-items:center;gap:12px;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.header-brand{
+  display:flex;align-items:center;gap:10px;flex:1;
+}
+.header-logo{
+  width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,#c05d2e,#e08a5c);
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:16px;font-weight:700;
+  font-family:'Outfit',sans-serif;letter-spacing:-0.5px;
+  box-shadow:0 2px 8px rgba(192,93,46,0.25);
+}
+.header-info h1{
+  font-family:'Outfit','Noto Sans KR',sans-serif;
+  font-size:15px;font-weight:600;letter-spacing:-0.3px;
+  color:var(--text);
+}
+.header-info span{
+  font-size:11.5px;color:var(--text-tertiary);font-weight:400;
+  letter-spacing:0.2px;
+}
+.status-dot{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+  transition:background 0.3s;
+}
+.status-dot.on{background:#2d6a4f;box-shadow:0 0 0 3px rgba(45,106,79,0.2)}
+.status-dot.off{background:var(--text-tertiary)}
+.status-label{
+  font-size:12px;color:var(--text-tertiary);font-weight:500;
+}
+
+/* ── Chat Area ── */
+.chat{
+  flex:1;overflow-y:auto;padding:20px 16px;
+  display:flex;flex-direction:column;gap:6px;
+  -webkit-overflow-scrolling:touch;
+  scroll-behavior:smooth;
+}
+
+/* Date separator */
+.date-sep{
+  display:flex;align-items:center;gap:12px;
+  margin:8px 0 12px;
+}
+.date-sep::before,.date-sep::after{
+  content:'';flex:1;height:1px;background:var(--border);
+}
+.date-sep span{
+  font-size:11px;color:var(--text-tertiary);font-weight:500;
+  letter-spacing:0.5px;white-space:nowrap;
+}
+
+/* Messages */
+.msg-group{display:flex;flex-direction:column;gap:2px;margin-bottom:4px}
+.msg-group.user{align-items:flex-end}
+.msg-group.bot{align-items:flex-start}
+
+.msg{
+  max-width:82%;padding:11px 16px;
+  font-size:14.5px;line-height:1.65;word-break:break-word;
+  animation:msgIn 0.25s cubic-bezier(0.22,1,0.36,1);
+}
+@keyframes msgIn{
+  from{opacity:0;transform:translateY(8px) scale(0.97)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+
+.msg.user{
+  background:var(--primary);color:#fff;
+  border-radius:var(--radius) var(--radius) 6px var(--radius);
+  box-shadow:0 2px 12px rgba(192,93,46,0.15);
+}
+.msg.bot{
+  background:var(--surface);color:var(--text);
+  border-radius:var(--radius) var(--radius) var(--radius) 6px;
+  box-shadow:var(--shadow-sm);
+  border:1px solid var(--border);
+}
+.msg.system{
+  align-self:center;background:transparent;
+  color:var(--text-tertiary);font-size:12.5px;
+  padding:6px 14px;
+}
+
+.msg .meta{
+  font-size:11px;margin-top:5px;font-weight:400;
+  letter-spacing:0.2px;
+}
+.msg.user .meta{color:rgba(255,255,255,0.55)}
+.msg.bot .meta{color:var(--text-tertiary)}
+
+.bot-label{
+  font-size:11px;color:var(--text-tertiary);font-weight:500;
+  padding:0 4px;margin-bottom:2px;letter-spacing:0.3px;
+}
+
+.partial{
+  align-self:flex-end;color:var(--text-secondary);
+  font-style:italic;font-size:13px;padding:4px 8px;
+}
+
+/* Recording indicator */
+.recording-indicator{
+  display:flex;align-items:center;gap:8px;
+  align-self:center;padding:8px 16px;
+  background:var(--primary-soft);border-radius:20px;
+  animation:msgIn 0.25s cubic-bezier(0.22,1,0.36,1);
+}
+.rec-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:var(--primary);
+  animation:recPulse 1.2s ease infinite;
+}
+@keyframes recPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)}}
+.recording-indicator span{font-size:13px;color:var(--primary);font-weight:500}
+
+/* ── Welcome ── */
+.welcome{
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;flex:1;gap:16px;padding:32px 24px;
+}
+.welcome-visual{
+  width:80px;height:80px;border-radius:24px;
+  background:linear-gradient(145deg,var(--primary-soft),rgba(45,106,79,0.06));
+  display:flex;align-items:center;justify-content:center;
+  font-size:36px;
+}
+.welcome h2{
+  font-family:'Outfit','Noto Sans KR',sans-serif;
+  font-size:20px;font-weight:600;letter-spacing:-0.5px;
+  color:var(--text);text-align:center;
+}
+.welcome p{
+  font-size:14px;color:var(--text-secondary);
+  text-align:center;line-height:1.7;max-width:280px;
+}
+.welcome-chips{
+  display:flex;flex-wrap:wrap;gap:8px;justify-content:center;
+  margin-top:4px;
+}
+.chip{
+  padding:8px 16px;border-radius:20px;
+  background:var(--surface);border:1px solid var(--border);
+  font-size:13px;color:var(--text-secondary);
+  cursor:pointer;transition:all 0.2s;
+  box-shadow:var(--shadow-sm);
+}
+.chip:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.chip:active{transform:scale(0.96)}
+
+/* ── Controls ── */
+.controls{
+  padding:12px 16px 12px;background:var(--surface);
+  border-top:1px solid var(--border);flex-shrink:0;
+}
+.input-row{display:flex;gap:8px;align-items:center}
+.input-row input{
+  flex:1;padding:12px 18px;min-width:0;
+  border:1.5px solid var(--border);border-radius:24px;
+  background:var(--bg);color:var(--text);
+  font-size:15px;font-family:inherit;outline:none;
+  transition:border 0.2s,box-shadow 0.2s;
+}
+.input-row input:focus{
+  border-color:var(--primary);
+  box-shadow:0 0 0 3px var(--primary-soft);
+}
+.input-row input::placeholder{color:var(--text-tertiary)}
+.input-row input:disabled{opacity:0.5}
+
+.btn{
+  width:44px;height:44px;border:none;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all 0.15s;flex-shrink:0;
+  font-size:17px;position:relative;
+}
+.btn:disabled{opacity:0.25;cursor:default}
+.btn:not(:disabled):active{transform:scale(0.92)}
+
+.btn-send{
+  background:var(--primary);color:#fff;
+  box-shadow:0 2px 8px rgba(192,93,46,0.25);
+}
+.btn-send:not(:disabled):hover{background:var(--primary-hover)}
+.btn-send svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+
+.btn-mic{
+  background:var(--bg);color:var(--text-secondary);
+  border:1.5px solid var(--border);
+}
+.btn-mic:not(:disabled):hover{border-color:var(--primary);color:var(--primary)}
+.btn-mic.recording{
+  background:var(--primary);color:#fff;
+  border-color:var(--primary);
+  box-shadow:0 0 0 4px var(--primary-soft);
+  animation:micPulse 2s ease infinite;
+}
+@keyframes micPulse{
+  0%,100%{box-shadow:0 0 0 4px var(--primary-soft)}
+  50%{box-shadow:0 0 0 10px rgba(192,93,46,0)}
+}
+
+/* Secondary actions row */
+.btn-row{
+  display:none;gap:8px;margin-top:8px;justify-content:center;
+}
+.btn-row.active{display:flex}
+.btn-pill{
+  padding:8px 18px;border:1.5px solid var(--border);
+  border-radius:20px;background:var(--surface);color:var(--text-secondary);
+  font-size:13px;font-family:inherit;font-weight:500;
+  cursor:pointer;transition:all 0.15s;
+}
+.btn-pill:hover{background:var(--surface-alt)}
+.btn-pill:active{transform:scale(0.96)}
+.btn-pill.stop{border-color:var(--primary);color:var(--primary)}
+.btn-pill.stop:hover{background:var(--primary-soft)}
+
+/* Playing indicator */
+.playing-bar{
+  display:flex;align-items:center;justify-content:center;
+  gap:3px;height:16px;margin-left:8px;
+}
+.playing-bar i{
+  width:3px;border-radius:2px;background:var(--primary);
+  animation:playBar 0.8s ease infinite;
+}
+.playing-bar i:nth-child(1){height:8px;animation-delay:0s}
+.playing-bar i:nth-child(2){height:14px;animation-delay:0.15s}
+.playing-bar i:nth-child(3){height:10px;animation-delay:0.3s}
+.playing-bar i:nth-child(4){height:6px;animation-delay:0.45s}
+@keyframes playBar{0%,100%{transform:scaleY(0.5)}50%{transform:scaleY(1)}}
+
+/* Safe area (iPhone notch/bar) */
+@supports(padding-bottom:env(safe-area-inset-bottom)){
+  .controls{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+}
+
+/* ── Desktop ── */
+@media(min-width:600px){
+  body{background:#e8e2db}
+  .app-shell{
+    max-width:420px;width:100%;margin:0 auto;
+    height:100dvh;display:flex;flex-direction:column;
+    background:var(--bg);
+    box-shadow:0 0 60px rgba(45,35,25,0.1);
+  }
+  .header{border-radius:0}
+  .chat{padding:24px 20px}
+  .msg{max-width:78%}
+}
+@media(max-width:599px){
+  .app-shell{display:contents}
 }
 </style>
 </head>
 <body>
+<div class="app-shell">
+
 <div class="header">
-  <h1>📞 Callbot</h1>
-  <span id="status" class="badge off">연결 끊김</span>
+  <div class="header-brand">
+    <div class="header-logo">AT</div>
+    <div class="header-info">
+      <h1>AnyTelecom</h1>
+      <span>AI 고객센터</span>
+    </div>
+  </div>
+  <span id="statusLabel" class="status-label">연결 중</span>
+  <div id="statusDot" class="status-dot off"></div>
 </div>
 
 <div id="chat" class="chat">
   <div class="welcome" id="welcome">
-    <div class="welcome-icon">📞</div>
-    <div class="welcome-text">
-      통신사 AI 상담 데모<br>
-      텍스트를 입력하거나 🎤 버튼으로 음성 상담을 시작하세요
+    <div class="welcome-visual">📱</div>
+    <h2>무엇을 도와드릴까요?</h2>
+    <p>요금 조회, 데이터 변경, 요금제 상담 등<br>AI가 빠르게 안내해 드립니다</p>
+    <div class="welcome-chips">
+      <button class="chip" data-q="요금 조회해 주세요">💰 요금 조회</button>
+      <button class="chip" data-q="데이터 잔여량 확인">📊 데이터 확인</button>
+      <button class="chip" data-q="요금제 변경하고 싶어요">🔄 요금제 변경</button>
     </div>
   </div>
 </div>
 
 <div class="controls">
   <div class="input-row">
-    <button id="btnMic" class="btn btn-mic" disabled title="음성 녹음">🎤</button>
-    <input id="txtInput" type="text" placeholder="메시지를 입력하세요..." disabled />
-    <button id="btnSend" class="btn btn-send" disabled title="전송">↑</button>
+    <button id="btnMic" class="btn btn-mic" disabled title="음성 녹음">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+    </button>
+    <input id="txtInput" type="text" placeholder="메시지를 입력하세요" disabled autocomplete="off" />
+    <button id="btnSend" class="btn btn-send" disabled title="전송">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+    </button>
   </div>
   <div id="btnRow" class="btn-row">
-    <button id="btnEndRec" class="btn-pill">⏹️ 녹음 종료</button>
-    <button id="btnInterrupt" class="btn-pill danger">🚫 중단</button>
+    <button id="btnEndRec" class="btn-pill stop">녹음 완료</button>
+    <button id="btnInterrupt" class="btn-pill">중단</button>
   </div>
 </div>
 
+</div><!-- app-shell -->
+
 <script>
-const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/v1/ws/voice`;
-const CHUNK_SIZE = 3200;
-const SAMPLE_RATE = 16000;
+const WS_URL=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/v1/ws/voice`;
+const CHUNK_SIZE=3200,SAMPLE_RATE=16000;
+let ws=null,audioCtx=null,mediaStream=null,isRecording=false;
 
-let ws = null, audioCtx = null, mediaStream = null, isRecording = false;
+const $=id=>document.getElementById(id);
+const chat=$('chat'),statusDot=$('statusDot'),statusLabel=$('statusLabel');
+const btnMic=$('btnMic'),btnSend=$('btnSend'),txtInput=$('txtInput');
+const btnRow=$('btnRow'),btnEndRec=$('btnEndRec'),btnInterrupt=$('btnInterrupt');
+const welcome=$('welcome');
 
-const $ = id => document.getElementById(id);
-const chat = $('chat'), statusEl = $('status');
-const btnMic = $('btnMic'), btnSend = $('btnSend'), txtInput = $('txtInput');
-const btnRow = $('btnRow'), btnEndRec = $('btnEndRec'), btnInterrupt = $('btnInterrupt');
-const welcome = $('welcome');
+function hideWelcome(){if(welcome)welcome.style.display='none'}
 
-function hideWelcome() { if (welcome) welcome.style.display = 'none'; }
-
-function addMsg(text, cls, meta) {
+let lastSender=null;
+function addMsg(text,cls,meta){
   hideWelcome();
-  const el = document.createElement('div');
-  el.className = `msg ${cls}`;
-  el.textContent = text;
-  if (meta) { const m = document.createElement('div'); m.className = 'meta'; m.textContent = meta; el.appendChild(m); }
+  const el=document.createElement('div');
+  el.className=`msg ${cls}`;
+  if(cls==='bot'&&lastSender!=='bot'){
+    const label=document.createElement('div');
+    label.className='bot-label';label.textContent='AI 상담사';
+    chat.appendChild(label);
+  }
+  el.textContent=text;
+  if(meta){const m=document.createElement('div');m.className='meta';m.textContent=meta;el.appendChild(m)}
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  chat.scrollTop=chat.scrollHeight;
+  lastSender=cls==='user'?'user':cls==='bot'?'bot':lastSender;
   return el;
 }
 
-let partialEl = null;
-function updatePartial(text) {
+let recIndicator=null;
+function showRecording(){
   hideWelcome();
-  if (!partialEl) { partialEl = document.createElement('div'); partialEl.className = 'partial'; chat.appendChild(partialEl); }
-  partialEl.textContent = `🗣️ ${text}`;
-  chat.scrollTop = chat.scrollHeight;
+  if(recIndicator)return;
+  recIndicator=document.createElement('div');
+  recIndicator.className='recording-indicator';
+  recIndicator.innerHTML='<div class="rec-dot"></div><span>듣고 있어요...</span>';
+  chat.appendChild(recIndicator);
+  chat.scrollTop=chat.scrollHeight;
 }
-function clearPartial() { if (partialEl) { partialEl.remove(); partialEl = null; } }
+function hideRecording(){if(recIndicator){recIndicator.remove();recIndicator=null}}
 
-function connect() {
-  ws = new WebSocket(WS_URL);
-  ws.onopen = () => {
-    statusEl.textContent = '연결됨'; statusEl.className = 'badge on';
-    btnMic.disabled = false; btnSend.disabled = false; txtInput.disabled = false;
+let partialEl=null;
+function updatePartial(text){
+  hideWelcome();
+  if(!partialEl){partialEl=document.createElement('div');partialEl.className='partial';chat.appendChild(partialEl)}
+  partialEl.textContent=`"${text}"`;
+  chat.scrollTop=chat.scrollHeight;
+}
+function clearPartial(){if(partialEl){partialEl.remove();partialEl=null}}
+
+function connect(){
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{
+    statusDot.className='status-dot on';statusLabel.textContent='연결됨';
+    btnMic.disabled=false;btnSend.disabled=false;txtInput.disabled=false;
   };
-  ws.onclose = () => {
-    statusEl.textContent = '연결 끊김'; statusEl.className = 'badge off';
-    btnMic.disabled = true; btnSend.disabled = true; txtInput.disabled = true;
-    setTimeout(connect, 3000);
+  ws.onclose=()=>{
+    statusDot.className='status-dot off';statusLabel.textContent='재연결 중';
+    btnMic.disabled=true;btnSend.disabled=true;txtInput.disabled=true;
+    setTimeout(connect,3000);
   };
-  ws.onerror = () => ws.close();
-  ws.onmessage = (evt) => {
-    const msg = JSON.parse(evt.data);
-    if (msg.type === 'transcript') {
-      if (msg.is_final) { clearPartial(); addMsg(msg.text, 'user'); }
+  ws.onerror=()=>ws.close();
+  ws.onmessage=evt=>{
+    const msg=JSON.parse(evt.data);
+    if(msg.type==='transcript'){
+      if(msg.is_final){clearPartial();addMsg(msg.text,'user')}
       else updatePartial(msg.text);
-    } else if (msg.type === 'response') {
-      addMsg(msg.text, 'bot', msg.processing_ms ? `${msg.processing_ms}ms` : '');
-      if (msg.audio) playPCM(msg.audio);
-    } else if (msg.type === 'interrupted') {
-      addMsg('중단됨', 'system');
-    } else if (msg.type === 'fallback') {
-      addMsg(msg.message, 'system');
-    } else if (msg.type === 'error') {
-      addMsg(`오류: ${msg.message}`, 'system');
+    }else if(msg.type==='response'){
+      addMsg(msg.text,'bot',msg.processing_ms?`${(msg.processing_ms/1000).toFixed(1)}초`:'');
+      if(msg.audio)playPCM(msg.audio);
+    }else if(msg.type==='interrupted'){
+      addMsg('상담이 중단되었습니다','system');
+    }else if(msg.type==='fallback'){
+      addMsg(msg.message,'system');
+    }else if(msg.type==='error'){
+      addMsg(`오류: ${msg.message}`,'system');
     }
   };
 }
 
-function playPCM(b64) {
-  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const int16 = new Int16Array(bytes.buffer);
-  const float32 = new Float32Array(int16.length);
-  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
-  const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
-  const buf = ctx.createBuffer(1, float32.length, SAMPLE_RATE);
-  buf.copyToChannel(float32, 0);
-  const src = ctx.createBufferSource(); src.buffer = buf;
-  src.connect(ctx.destination); src.start();
+function playPCM(b64){
+  const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+  const int16=new Int16Array(bytes.buffer);
+  const float32=new Float32Array(int16.length);
+  for(let i=0;i<int16.length;i++)float32[i]=int16[i]/32768;
+  const ctx=new AudioContext({sampleRate:SAMPLE_RATE});
+  const buf=ctx.createBuffer(1,float32.length,SAMPLE_RATE);
+  buf.copyToChannel(float32,0);
+  const src=ctx.createBufferSource();src.buffer=buf;
+  src.connect(ctx.destination);src.start();
 }
 
-async function startRecording() {
-  try {
-    audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true }
-    });
-  } catch (e) {
-    addMsg('마이크 접근 권한이 필요합니다', 'system');
-    return;
-  }
-  const source = audioCtx.createMediaStreamSource(mediaStream);
-  const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-  processor.onaudioprocess = (e) => {
-    if (!isRecording) return;
-    const f32 = e.inputBuffer.getChannelData(0);
-    const i16 = new Int16Array(f32.length);
-    for (let i = 0; i < f32.length; i++) { const s = Math.max(-1, Math.min(1, f32[i])); i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF; }
-    const bytes = new Uint8Array(i16.buffer);
-    for (let off = 0; off < bytes.length; off += CHUNK_SIZE) {
-      const chunk = bytes.slice(off, off + CHUNK_SIZE);
-      if (chunk.length === CHUNK_SIZE && ws && ws.readyState === 1)
-        ws.send(JSON.stringify({ type: 'audio', data: btoa(String.fromCharCode(...chunk)) }));
+async function startRecording(){
+  try{
+    audioCtx=new AudioContext({sampleRate:SAMPLE_RATE});
+    mediaStream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:SAMPLE_RATE,channelCount:1,echoCancellation:true}});
+  }catch(e){addMsg('마이크 접근 권한이 필요합니다','system');return}
+  const source=audioCtx.createMediaStreamSource(mediaStream);
+  const processor=audioCtx.createScriptProcessor(4096,1,1);
+  processor.onaudioprocess=e=>{
+    if(!isRecording)return;
+    const f32=e.inputBuffer.getChannelData(0);
+    const i16=new Int16Array(f32.length);
+    for(let i=0;i<f32.length;i++){const s=Math.max(-1,Math.min(1,f32[i]));i16[i]=s<0?s*0x8000:s*0x7FFF}
+    const bytes=new Uint8Array(i16.buffer);
+    for(let off=0;off<bytes.length;off+=CHUNK_SIZE){
+      const chunk=bytes.slice(off,off+CHUNK_SIZE);
+      if(chunk.length===CHUNK_SIZE&&ws&&ws.readyState===1)
+        ws.send(JSON.stringify({type:'audio',data:btoa(String.fromCharCode(...chunk))}));
     }
   };
-  source.connect(processor); processor.connect(audioCtx.destination);
-
-  isRecording = true;
-  btnMic.classList.add('recording'); btnMic.textContent = '🔴';
+  source.connect(processor);processor.connect(audioCtx.destination);
+  isRecording=true;
+  btnMic.classList.add('recording');
   btnRow.classList.add('active');
-  addMsg('녹음 중...', 'system');
+  showRecording();
 }
 
-function stopRecording() {
-  isRecording = false;
-  if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-  if (audioCtx) audioCtx.close();
-  btnMic.classList.remove('recording'); btnMic.textContent = '🎤';
+function stopRecording(){
+  isRecording=false;
+  if(mediaStream)mediaStream.getTracks().forEach(t=>t.stop());
+  if(audioCtx)audioCtx.close();
+  btnMic.classList.remove('recording');
   btnRow.classList.remove('active');
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'end' }));
+  hideRecording();
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'end'}));
 }
 
-btnMic.onclick = () => { if (isRecording) stopRecording(); else startRecording(); };
-btnInterrupt.onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'interrupt' })); };
-btnEndRec.onclick = () => stopRecording();
-btnSend.onclick = () => {
-  const text = txtInput.value.trim(); if (!text) return;
-  addMsg(text, 'user');
-  ws.send(JSON.stringify({ type: 'text', text }));
-  txtInput.value = '';
-};
-txtInput.onkeydown = (e) => { if (e.key === 'Enter') btnSend.onclick(); };
+function sendText(text){
+  if(!text||!ws||ws.readyState!==1)return;
+  addMsg(text,'user');
+  ws.send(JSON.stringify({type:'text',text}));
+  txtInput.value='';
+}
+
+btnMic.onclick=()=>{if(isRecording)stopRecording();else startRecording()};
+btnInterrupt.onclick=()=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}))};
+btnEndRec.onclick=()=>stopRecording();
+btnSend.onclick=()=>sendText(txtInput.value.trim());
+txtInput.onkeydown=e=>{if(e.key==='Enter')btnSend.onclick()};
+
+// Quick-reply chips
+document.querySelectorAll('.chip').forEach(el=>{
+  el.onclick=()=>{
+    const q=el.dataset.q;if(q)sendText(q);
+  };
+});
 
 connect();
 </script>
