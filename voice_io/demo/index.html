@@ -1,161 +1,187 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Callbot Voice Demo</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .container { width: 400px; padding: 32px; }
-        h1 { text-align: center; margin-bottom: 24px; font-size: 1.5rem; }
-        .status { text-align: center; padding: 8px; border-radius: 8px; margin-bottom: 16px; font-size: 0.9rem; }
-        .status.connected { background: #16213e; color: #0f0; }
-        .status.disconnected { background: #16213e; color: #f55; }
-        .controls { display: flex; gap: 12px; justify-content: center; margin-bottom: 24px; }
-        button { padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; transition: 0.2s; }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        #btnRecord { background: #e94560; color: #fff; }
-        #btnRecord.recording { background: #0f3460; animation: pulse 1s infinite; }
-        #btnInterrupt { background: #533483; color: #fff; }
-        #btnConnect { background: #0f3460; color: #fff; }
-        @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-        .log { background: #16213e; border-radius: 8px; padding: 16px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; line-height: 1.6; }
-        .log .user { color: #e94560; }
-        .log .bot { color: #0f0; }
-        .log .sys { color: #888; }
-    </style>
+<meta charset="UTF-8">
+<title>Callbot Voice Demo — Phase H</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+.header { padding: 12px 20px; background: #16213e; display: flex; align-items: center; gap: 12px; }
+.header h1 { font-size: 18px; flex: 1; }
+.status { font-size: 13px; padding: 4px 12px; border-radius: 12px; }
+.status.connected { background: #0f5132; color: #75b798; }
+.status.disconnected { background: #842029; color: #ea868f; }
+.chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+.msg.user { align-self: flex-end; background: #0a3d62; }
+.msg.bot { align-self: flex-start; background: #2d3436; }
+.msg .meta { font-size: 11px; color: #888; margin-top: 4px; }
+.partial { align-self: flex-end; color: #888; font-style: italic; font-size: 13px; padding: 4px 14px; }
+.controls { padding: 16px 20px; background: #16213e; display: flex; gap: 12px; align-items: center; }
+.btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: 0.2s; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn-mic { background: #e74c3c; color: white; }
+.btn-mic.recording { background: #27ae60; animation: pulse 1s infinite; }
+.btn-stop { background: #f39c12; color: white; }
+.btn-send { background: #3498db; color: white; }
+input[type=text] { flex: 1; padding: 10px 14px; border: 1px solid #444; border-radius: 8px; background: #2d3436; color: #eee; font-size: 14px; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>🎙️ Callbot Voice Demo</h1>
-        <div class="status disconnected" id="status">연결 안됨</div>
-        <div class="controls">
-            <button id="btnConnect">연결</button>
-            <button id="btnRecord" disabled>🎤 녹음</button>
-            <button id="btnInterrupt" disabled>⏹ 중단</button>
-        </div>
-        <div class="log" id="log"></div>
-    </div>
+<div class="header">
+  <h1>🎙️ Callbot Voice Demo</h1>
+  <span id="status" class="status disconnected">Disconnected</span>
+</div>
+<div id="chat" class="chat"></div>
+<div class="controls">
+  <button id="btnMic" class="btn btn-mic" disabled>🎤 녹음</button>
+  <button id="btnStop" class="btn btn-stop" disabled>⏹️ Barge-in</button>
+  <input id="txtInput" type="text" placeholder="텍스트 입력 (폴백)..." />
+  <button id="btnSend" class="btn btn-send" disabled>전송</button>
+</div>
+<script>
+const WS_URL = `ws://${location.host}/api/v1/ws/voice`;
+const CHUNK_SIZE = 3200; // 100ms @ 16kHz 16bit mono
+const SAMPLE_RATE = 16000;
 
-    <script>
-        const log = document.getElementById('log');
-        const status = document.getElementById('status');
-        const btnConnect = document.getElementById('btnConnect');
-        const btnRecord = document.getElementById('btnRecord');
-        const btnInterrupt = document.getElementById('btnInterrupt');
+let ws = null;
+let audioCtx = null;
+let mediaStream = null;
+let workletNode = null;
+let isRecording = false;
 
-        let ws = null;
-        let mediaRecorder = null;
-        let audioContext = null;
-        let isRecording = false;
+const chat = document.getElementById('chat');
+const statusEl = document.getElementById('status');
+const btnMic = document.getElementById('btnMic');
+const btnStop = document.getElementById('btnStop');
+const btnSend = document.getElementById('btnSend');
+const txtInput = document.getElementById('txtInput');
 
-        function addLog(text, cls = 'sys') {
-            const div = document.createElement('div');
-            div.className = cls;
-            div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
-            log.appendChild(div);
-            log.scrollTop = log.scrollHeight;
-        }
+function addMessage(text, cls, meta) {
+  const el = document.createElement('div');
+  el.className = `msg ${cls}`;
+  el.textContent = text;
+  if (meta) { const m = document.createElement('div'); m.className = 'meta'; m.textContent = meta; el.appendChild(m); }
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+  return el;
+}
 
-        btnConnect.onclick = () => {
-            const wsUrl = prompt('WebSocket URL:', 'ws://localhost:8000/api/v1/ws/voice');
-            if (!wsUrl) return;
-            ws = new WebSocket(wsUrl);
-            ws.binaryType = 'arraybuffer';
+let partialEl = null;
+function updatePartial(text) {
+  if (!partialEl) { partialEl = document.createElement('div'); partialEl.className = 'partial'; chat.appendChild(partialEl); }
+  partialEl.textContent = `🗣️ ${text}`;
+  chat.scrollTop = chat.scrollHeight;
+}
+function clearPartial() { if (partialEl) { partialEl.remove(); partialEl = null; } }
 
-            ws.onopen = () => {
-                status.textContent = '연결됨';
-                status.className = 'status connected';
-                btnRecord.disabled = false;
-                btnInterrupt.disabled = false;
-                addLog('WebSocket 연결 성공');
-            };
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'status connected';
+    btnMic.disabled = false;
+    btnSend.disabled = false;
+  };
+  ws.onclose = () => {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'status disconnected';
+    btnMic.disabled = true;
+    btnSend.disabled = true;
+    btnStop.disabled = true;
+    setTimeout(connect, 3000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if (msg.type === 'transcript') {
+      if (msg.is_final) { clearPartial(); addMessage(msg.text, 'user'); }
+      else { updatePartial(msg.text); }
+    } else if (msg.type === 'response') {
+      addMessage(msg.text, 'bot', `${msg.processing_ms}ms`);
+      if (msg.audio) playPCM(msg.audio);
+    } else if (msg.type === 'interrupted') {
+      addMessage('⏹️ 중단됨', 'bot');
+    } else if (msg.type === 'fallback') {
+      addMessage(`⚠️ ${msg.message}`, 'bot');
+    } else if (msg.type === 'error') {
+      addMessage(`❌ ${msg.message}`, 'bot');
+    }
+  };
+}
 
-            ws.onmessage = (e) => {
-                if (typeof e.data === 'string') {
-                    const msg = JSON.parse(e.data);
-                    if (msg.type === 'session_started') {
-                        addLog(`세션 시작: ${msg.session_id}`);
-                    } else if (msg.type === 'transcript') {
-                        addLog(`인식: ${msg.text}`, 'user');
-                    } else if (msg.type === 'response_text') {
-                        addLog(`응답: ${msg.text}`, 'bot');
-                    } else if (msg.type === 'error') {
-                        addLog(`오류: ${msg.message}`, 'sys');
-                    } else if (msg.type === 'partial_transcript') {
-                        addLog(`(부분) ${msg.text}`, 'sys');
-                    }
-                } else {
-                    // Binary = TTS audio
-                    playAudio(e.data);
-                    addLog('🔊 음성 응답 재생');
-                }
-            };
+function playPCM(b64) {
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const int16 = new Int16Array(bytes.buffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+  const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  const buf = ctx.createBuffer(1, float32.length, SAMPLE_RATE);
+  buf.copyToChannel(float32, 0);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.start();
+}
 
-            ws.onclose = () => {
-                status.textContent = '연결 종료';
-                status.className = 'status disconnected';
-                btnRecord.disabled = true;
-                btnInterrupt.disabled = true;
-                addLog('WebSocket 연결 종료');
-            };
-        };
+async function startRecording() {
+  audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true } });
+  const source = audioCtx.createMediaStreamSource(mediaStream);
 
-        btnRecord.onclick = async () => {
-            if (isRecording) {
-                mediaRecorder.stop();
-                btnRecord.textContent = '🎤 녹음';
-                btnRecord.classList.remove('recording');
-                isRecording = false;
-                return;
-            }
+  // ScriptProcessorNode fallback (AudioWorklet needs HTTPS)
+  const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+  processor.onaudioprocess = (e) => {
+    if (!isRecording) return;
+    const float32 = e.inputBuffer.getChannelData(0);
+    const int16 = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    // Send in CHUNK_SIZE pieces
+    const bytes = new Uint8Array(int16.buffer);
+    for (let off = 0; off < bytes.length; off += CHUNK_SIZE) {
+      const chunk = bytes.slice(off, off + CHUNK_SIZE);
+      if (chunk.length === CHUNK_SIZE && ws && ws.readyState === 1) {
+        const b64 = btoa(String.fromCharCode(...chunk));
+        ws.send(JSON.stringify({ type: 'audio', data: b64 }));
+      }
+    }
+  };
+  source.connect(processor);
+  processor.connect(audioCtx.destination);
 
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-                const chunks = [];
+  isRecording = true;
+  btnMic.textContent = '⏹️ 종료';
+  btnMic.classList.add('recording');
+  btnStop.disabled = false;
+}
 
-                mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-                mediaRecorder.onstop = async () => {
-                    const blob = new Blob(chunks, { type: 'audio/webm' });
-                    const buffer = await blob.arrayBuffer();
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(buffer);
-                        addLog('오디오 전송 완료', 'user');
-                    }
-                    stream.getTracks().forEach(t => t.stop());
-                };
+function stopRecording() {
+  isRecording = false;
+  if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+  if (audioCtx) audioCtx.close();
+  btnMic.textContent = '🎤 녹음';
+  btnMic.classList.remove('recording');
+  btnStop.disabled = true;
+  // Send end to trigger STT final + pipeline
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'end' }));
+}
 
-                mediaRecorder.start();
-                btnRecord.textContent = '⏹ 정지';
-                btnRecord.classList.add('recording');
-                isRecording = true;
-                addLog('녹음 시작...');
-            } catch (err) {
-                addLog(`마이크 오류: ${err.message}`);
-            }
-        };
+btnMic.onclick = () => { if (isRecording) stopRecording(); else startRecording(); };
+btnStop.onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'interrupt' })); };
+btnSend.onclick = () => {
+  const text = txtInput.value.trim();
+  if (!text) return;
+  addMessage(text, 'user');
+  ws.send(JSON.stringify({ type: 'text', text }));
+  txtInput.value = '';
+};
+txtInput.onkeydown = (e) => { if (e.key === 'Enter') btnSend.onclick(); };
 
-        btnInterrupt.onclick = () => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'interrupt' }));
-                addLog('중단 요청 전송');
-            }
-        };
-
-        async function playAudio(buffer) {
-            if (!audioContext) audioContext = new AudioContext();
-            try {
-                const decoded = await audioContext.decodeAudioData(buffer);
-                const source = audioContext.createBufferSource();
-                source.buffer = decoded;
-                source.connect(audioContext.destination);
-                source.start();
-            } catch (e) {
-                addLog(`오디오 재생 실패: ${e.message}`);
-            }
-        }
-    </script>
+connect();
+</script>
 </body>
 </html>
