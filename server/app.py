@@ -201,6 +201,17 @@ def create_app() -> FastAPI:
     from server.voice_ws import router as voice_router
     app.include_router(voice_router)
 
+    # Demo static files
+    import pathlib
+    from fastapi.responses import HTMLResponse
+    demo_html = pathlib.Path(__file__).resolve().parent.parent / "voice_io" / "demo" / "index.html"
+
+    @app.get("/demo", response_class=HTMLResponse)
+    async def demo_page():
+        if demo_html.exists():
+            return demo_html.read_text(encoding="utf-8")
+        return HTMLResponse("<h1>Demo not found</h1>", status_code=404)
+
     # Error handlers
     @app.exception_handler(SessionNotFoundError)
     async def _session_not_found(request: Request, exc: SessionNotFoundError):
