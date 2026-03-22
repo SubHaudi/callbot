@@ -34,7 +34,12 @@ async def turn_endpoint(body: TurnRequest, request: Request) -> TurnResponse:
             content={"detail": "Service unavailable — dependencies not initialized"},
         )
 
-    pipeline = request.app.state.pipeline
+    pipeline = getattr(request.app.state, "pipeline", None)
+    if pipeline is None:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Pipeline not initialized"},
+        )
     result = await pipeline.process(
         session_id=body.session_id,
         caller_id=body.caller_id,
