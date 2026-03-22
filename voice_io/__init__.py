@@ -1,3 +1,4 @@
+from __future__ import annotations
 """callbot.voice_io — 음성 I/O 계층 (STT, TTS, DTMF)"""
 from callbot.voice_io.models import STTResult, DTMFResult, StreamHandle, PartialResult, AudioStream
 from callbot.voice_io.enums import NumberType

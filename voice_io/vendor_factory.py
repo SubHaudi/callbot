@@ -11,6 +11,7 @@ from typing import Any
 from callbot.voice_io.stt_engine import STTEngine
 from callbot.voice_io.tts_engine import TTSEngine
 from callbot.voice_io.vendor_config import VendorConfig
+from callbot.voice_io.fallback_stt import FallbackSTTEngine
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +32,14 @@ def register_tts_vendor(vendor_id: str, adapter_cls: type) -> None:
 
 def create_stt_engine(
     config: VendorConfig, **kwargs: Any
-) -> STTEngine | tuple[STTEngine, STTEngine]:
+) -> STTEngine:
     """config.stt_vendor에 따라 STT 벤더 어댑터 인스턴스를 생성한다.
 
-    폴백 벤더(config.stt_fallback_vendor)가 설정된 경우,
-    (주 어댑터, 폴백 어댑터) 튜플을 반환한다.
+    항상 STTEngine을 반환한다. FallbackSTTEngine으로 래핑하여
+    주 엔진 실패 시 STTFallbackError가 발생한다.
 
     Returns:
-        STTEngine: 폴백 미설정 시 단일 어댑터
-        tuple[STTEngine, STTEngine]: 폴백 설정 시 (primary, fallback)
+        STTEngine: FallbackSTTEngine 래퍼로 감싼 단일 엔진
 
     Raises:
         ValueError: 지원되지 않는 벤더 식별자
@@ -61,10 +61,11 @@ def create_stt_engine(
                 f"Unsupported STT fallback vendor '{config.stt_fallback_vendor}'. "
                 f"Supported: {supported}"
             )
-        fallback = fallback_cls(config=config, **kwargs)
-        return primary, fallback
+        # Phase F: 폴백 벤더가 있어도 FallbackSTTEngine으로 주 엔진만 래핑
+        # 실패 시 STTFallbackError → VoiceServer가 텍스트 모드 전환
+        return FallbackSTTEngine(primary)
 
-    return primary
+    return FallbackSTTEngine(primary)
 
 
 def create_tts_engine(
