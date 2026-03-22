@@ -158,6 +158,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
+    if hasattr(app.state, 'voice_server'):
+        app.state.voice_server.stop_background_cleanup()
     if app.state.pg_connection is not None:
         try:
             app.state.pg_connection.close()
@@ -197,6 +199,12 @@ def create_app() -> FastAPI:
     # Voice WebSocket router
     from server.voice_ws import router as voice_router
     app.include_router(voice_router)
+
+    # VoiceServer DI — app.state에 주입
+    from callbot.voice_io.voice_server import VoiceServer
+    app.state.voice_server = VoiceServer(
+        pipeline=getattr(app.state, 'pipeline', None),
+    )
 
     # Error handlers
     @app.exception_handler(SessionNotFoundError)
