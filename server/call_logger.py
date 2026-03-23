@@ -27,11 +27,24 @@ class CallLogger:
         self, end_reason: str, turns: List[Dict[str, Any]]
     ) -> str:
         """end_reason + 턴 이력 기반 resolution 판정."""
-        pass
+        if end_reason == "transfer":
+            return "escalated"
+        if end_reason in ("timeout", "disconnect"):
+            return "abandoned"
+        # 정상 종료: 마지막 턴의 action_type 확인
+        if turns:
+            last_action = turns[-1].get("action_type") or ""
+            if last_action == "업무_처리":
+                return "resolved"
+        return "unresolved"
 
     def _extract_primary_intent(self, turns: List[Dict[str, Any]]) -> Optional[str]:
         """마지막 비-null 인텐트 추출."""
-        pass
+        for turn in reversed(turns):
+            intent = turn.get("intent")
+            if intent is not None:
+                return intent
+        return None
 
     def _generate_summary(self, turns: List[Dict[str, Any]]) -> Optional[str]:
         """LLM으로 대화 요약 생성 (최대 200자). 실패 시 None."""
