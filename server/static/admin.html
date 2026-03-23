@@ -1,1 +1,246 @@
-<!DOCTYPE html><html><head><title>Callbot Admin</title></head><body><h1>Admin Dashboard</h1><p>Coming soon...</p></body></html>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Callbot Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#faf8f5;--surface:#fff;--surface-alt:#f2eeea;--border:rgba(45,35,25,0.08);
+  --primary:#c05d2e;--primary-soft:rgba(192,93,46,0.08);--primary-hover:#a84e24;
+  --accent:#2d6a4f;--text:#2d2319;--text-secondary:#7a6e60;--text-tertiary:#9a9088;
+  --radius:20px;--radius-sm:12px;--shadow-sm:0 1px 3px rgba(45,35,25,0.06);
+  --shadow-md:0 4px 24px rgba(45,35,25,0.08);
+}
+body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+h1,h2,h3{font-family:'Outfit','Noto Sans KR',sans-serif;font-weight:600}
+.container{max-width:1200px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;flex-wrap:wrap;gap:16px}
+header h1{font-size:24px;color:var(--primary)}
+header a{color:var(--text-secondary);text-decoration:none;font-size:14px}
+.tabs{display:flex;gap:8px;margin-bottom:24px}
+.tab{padding:8px 20px;border-radius:var(--radius-sm);border:none;background:transparent;cursor:pointer;font:inherit;font-size:14px;color:var(--text-secondary);transition:.2s}
+.tab.active{background:var(--primary);color:#fff}
+.tab:hover:not(.active){background:var(--surface-alt)}
+/* KPI Cards */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px}
+.kpi{background:var(--surface);border-radius:var(--radius-sm);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border)}
+.kpi-label{font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.kpi-value{font-family:'Outfit',sans-serif;font-size:28px;font-weight:700;color:var(--text)}
+.kpi-sub{font-size:12px;color:var(--text-secondary);margin-top:2px}
+/* Charts */
+.charts{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:32px}
+.chart-card{background:var(--surface);border-radius:var(--radius-sm);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border)}
+.chart-card h3{font-size:14px;color:var(--text-secondary);margin-bottom:12px}
+@media(max-width:768px){.charts{grid-template-columns:1fr}}
+/* Table */
+.toolbar{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.toolbar input,.toolbar select{padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font:inherit;font-size:14px;background:var(--surface)}
+.toolbar input{flex:1;min-width:200px}
+table{width:100%;border-collapse:collapse;background:var(--surface);border-radius:var(--radius-sm);overflow:hidden;box-shadow:var(--shadow-sm)}
+th{background:var(--surface-alt);padding:10px 12px;text-align:left;font-size:12px;color:var(--text-secondary);font-weight:500;text-transform:uppercase;letter-spacing:0.5px}
+td{padding:10px 12px;border-top:1px solid var(--border);font-size:14px;cursor:pointer}
+tr:hover td{background:var(--primary-soft)}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500}
+.badge-resolved{background:#e8f5e9;color:#2e7d32}
+.badge-unresolved{background:#fff3e0;color:#e65100}
+.badge-escalated{background:#e3f2fd;color:#1565c0}
+.badge-abandoned{background:#fce4ec;color:#c62828}
+.badge-unknown{background:var(--surface-alt);color:var(--text-tertiary)}
+.pagination{display:flex;justify-content:center;gap:8px;margin-top:16px}
+.pagination button{padding:6px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font:inherit;font-size:13px}
+.pagination button.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.pagination button:disabled{opacity:0.4;cursor:default}
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:none;justify-content:center;align-items:center;z-index:100}
+.modal-overlay.show{display:flex}
+.modal{background:var(--surface);border-radius:var(--radius);max-width:700px;width:90%;max-height:85vh;overflow-y:auto;padding:32px;box-shadow:0 24px 64px rgba(0,0,0,0.2)}
+.modal h2{margin-bottom:16px;font-size:18px}
+.modal-meta{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;font-size:13px;color:var(--text-secondary)}
+.modal-summary{background:var(--surface-alt);padding:16px;border-radius:var(--radius-sm);margin-bottom:20px;font-size:14px;line-height:1.7}
+.turn{padding:12px 0;border-bottom:1px solid var(--border)}
+.turn-user{color:var(--primary);font-weight:500;font-size:13px}
+.turn-bot{color:var(--accent);font-size:13px;margin-top:4px}
+.turn-meta{font-size:11px;color:var(--text-tertiary);margin-top:2px}
+.close-btn{float:right;border:none;background:none;font-size:24px;cursor:pointer;color:var(--text-tertiary)}
+#section-overview,#section-logs{display:none}
+#section-overview.active,#section-logs.active{display:block}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📊 Callbot Admin</h1>
+    <a href="/demo">← 데모로 돌아가기</a>
+  </header>
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('overview')">Overview</button>
+    <button class="tab" onclick="showTab('logs')">Call Logs</button>
+  </div>
+
+  <!-- Overview -->
+  <div id="section-overview" class="active">
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-label">총 통화</div><div class="kpi-value" id="kpi-total">-</div></div>
+      <div class="kpi"><div class="kpi-label">해결률</div><div class="kpi-value" id="kpi-rate">-</div><div class="kpi-sub" id="kpi-rate-sub"></div></div>
+      <div class="kpi"><div class="kpi-label">평균 턴 수</div><div class="kpi-value" id="kpi-turns">-</div></div>
+      <div class="kpi"><div class="kpi-label">평균 통화 시간</div><div class="kpi-value" id="kpi-duration">-</div></div>
+    </div>
+    <div class="charts">
+      <div class="chart-card"><h3>일별 통화 건수 (최근 30일)</h3><canvas id="dailyChart"></canvas></div>
+      <div class="chart-card"><h3>인텐트 분포</h3><canvas id="intentChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Call Logs -->
+  <div id="section-logs">
+    <div class="toolbar">
+      <input type="text" id="searchInput" placeholder="검색 (발신번호, 요약)..." oninput="debounceSearch()">
+      <select id="filterResolution" onchange="loadCalls()">
+        <option value="">전체 상태</option>
+        <option value="resolved">해결</option>
+        <option value="unresolved">미해결</option>
+        <option value="escalated">상담원 전환</option>
+        <option value="abandoned">이탈</option>
+      </select>
+    </div>
+    <table>
+      <thead><tr><th>시간</th><th>발신번호</th><th>인텐트</th><th>턴</th><th>상태</th><th>요약</th></tr></thead>
+      <tbody id="callsBody"></tbody>
+    </table>
+    <div class="pagination" id="pagination"></div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="close-btn" onclick="closeModal()">×</button>
+    <h2 id="modalTitle">통화 상세</h2>
+    <div class="modal-meta" id="modalMeta"></div>
+    <div class="modal-summary" id="modalSummary"></div>
+    <div id="modalTurns"></div>
+  </div>
+</div>
+
+<script>
+const API='/api/v1/admin';
+let currentPage=1,searchTimer=null,dailyChartInstance=null,intentChartInstance=null;
+
+function showTab(t){
+  document.querySelectorAll('.tab').forEach((b,i)=>b.classList.toggle('active',i===(t==='overview'?0:1)));
+  document.getElementById('section-overview').classList.toggle('active',t==='overview');
+  document.getElementById('section-logs').classList.toggle('active',t==='logs');
+  if(t==='logs')loadCalls();
+}
+
+async function loadOverview(){
+  try{
+    const[stats,intents]=await Promise.all([
+      fetch(`${API}/stats?days=30`).then(r=>r.json()),
+      fetch(`${API}/stats/intents`).then(r=>r.json())
+    ]);
+    document.getElementById('kpi-total').textContent=stats.total_calls.toLocaleString();
+    document.getElementById('kpi-rate').textContent=Math.round(stats.resolution_rate*100)+'%';
+    document.getElementById('kpi-rate-sub').textContent=`${Math.round(stats.resolution_rate*stats.total_calls)}건 해결`;
+    document.getElementById('kpi-turns').textContent=stats.avg_turns.toFixed(1);
+    const dur=stats.avg_duration_seconds;
+    document.getElementById('kpi-duration').textContent=dur>=60?Math.round(dur/60)+'분':Math.round(dur)+'초';
+
+    // Daily chart
+    if(dailyChartInstance)dailyChartInstance.destroy();
+    const ctx1=document.getElementById('dailyChart').getContext('2d');
+    dailyChartInstance=new Chart(ctx1,{type:'bar',data:{
+      labels:stats.daily.map(d=>d.date.slice(5)),
+      datasets:[
+        {label:'전체',data:stats.daily.map(d=>d.count),backgroundColor:'rgba(192,93,46,0.2)',borderColor:'#c05d2e',borderWidth:1},
+        {label:'해결',data:stats.daily.map(d=>d.resolved),backgroundColor:'rgba(46,125,50,0.2)',borderColor:'#2e7d32',borderWidth:1}
+      ]
+    },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}});
+
+    // Intent chart
+    if(intentChartInstance)intentChartInstance.destroy();
+    if(intents.intents.length>0){
+      const ctx2=document.getElementById('intentChart').getContext('2d');
+      const colors=['#c05d2e','#2d6a4f','#1565c0','#e65100','#6a1b9a','#00838f'];
+      intentChartInstance=new Chart(ctx2,{type:'doughnut',data:{
+        labels:intents.intents.map(i=>i.intent||'기타'),
+        datasets:[{data:intents.intents.map(i=>i.count),backgroundColor:colors.slice(0,intents.intents.length)}]
+      },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}}}});
+    }
+  }catch(e){console.error('Overview load failed:',e)}
+}
+
+async function loadCalls(page){
+  currentPage=page||1;
+  const search=document.getElementById('searchInput').value;
+  const resolution=document.getElementById('filterResolution').value;
+  let url=`${API}/calls?page=${currentPage}&per_page=15`;
+  if(search)url+=`&search=${encodeURIComponent(search)}`;
+  if(resolution)url+=`&resolution=${resolution}`;
+  try{
+    const data=await fetch(url).then(r=>r.json());
+    const body=document.getElementById('callsBody');
+    body.innerHTML=data.calls.map(c=>`<tr onclick="showDetail('${c.session_id}')">
+      <td>${c.start_time?c.start_time.slice(0,16).replace('T',' '):'-'}</td>
+      <td>${c.caller_id||'-'}</td>
+      <td>${c.primary_intent||'-'}</td>
+      <td>${c.total_turn_count||0}</td>
+      <td><span class="badge badge-${c.resolution||'unknown'}">${resLabel(c.resolution)}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.call_summary||'-'}</td>
+    </tr>`).join('');
+    // Pagination
+    const totalPages=Math.ceil(data.total/data.per_page);
+    const pg=document.getElementById('pagination');
+    pg.innerHTML='';
+    if(totalPages>1){
+      for(let i=1;i<=Math.min(totalPages,10);i++){
+        const btn=document.createElement('button');
+        btn.textContent=i;if(i===currentPage)btn.classList.add('active');
+        btn.onclick=()=>loadCalls(i);pg.appendChild(btn);
+      }
+    }
+  }catch(e){console.error('Calls load failed:',e)}
+}
+
+function resLabel(r){return{resolved:'해결',unresolved:'미해결',escalated:'상담원',abandoned:'이탈',unknown:'대기'}[r]||r||'-'}
+
+function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadCalls(),300)}
+
+async function showDetail(sid){
+  try{
+    const data=await fetch(`${API}/calls/${sid}`).then(r=>r.json());
+    const s=data.session;
+    document.getElementById('modalTitle').textContent=`통화 상세 — ${s.caller_id||sid}`;
+    document.getElementById('modalMeta').innerHTML=`
+      <span>시작: ${s.start_time||'-'}</span>
+      <span>종료: ${s.end_time||'-'}</span>
+      <span>상태: <span class="badge badge-${s.resolution}">${resLabel(s.resolution)}</span></span>
+      <span>인텐트: ${s.primary_intent||'-'}</span>
+      <span>턴: ${s.total_turn_count||0}</span>
+    `;
+    document.getElementById('modalSummary').textContent=data.call_summary||'요약 없음';
+    document.getElementById('modalTurns').innerHTML=data.turns.map(t=>`
+      <div class="turn">
+        <div class="turn-user">👤 ${t.user_text||''}</div>
+        <div class="turn-bot">🤖 ${t.bot_text||''}</div>
+        <div class="turn-meta">#${t.turn_number} · ${t.intent||''} · ${t.action_type||''}</div>
+      </div>
+    `).join('');
+    document.getElementById('modalOverlay').classList.add('show');
+  }catch(e){console.error('Detail load failed:',e)}
+}
+
+function closeModal(){document.getElementById('modalOverlay').classList.remove('show')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+// Init
+loadOverview();
+</script>
+</body>
+</html>
