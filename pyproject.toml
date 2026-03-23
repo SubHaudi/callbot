@@ -16,6 +16,7 @@ dependencies = [
     "PyJWT>=2.8.0",
     "pybreaker>=1.0.0",
     "amazon-transcribe>=0.6.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [project.optional-dependencies]
