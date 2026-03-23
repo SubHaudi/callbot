@@ -111,3 +111,42 @@ class TestCallDetail:
         client = TestClient(app)
         resp = client.get("/api/v1/admin/calls/nonexistent")
         assert resp.status_code == 404
+
+
+class TestStats:
+    def test_stats_returns_200(self):
+        app, mock_pg = _create_test_app()
+        conn = MagicMock()
+        mock_pg._acquire_conn.return_value = conn
+        stats_cursor = MagicMock()
+        stats_cursor.fetchone.return_value = (10, 7, 4.2, 95.0)
+        stats_cursor.__enter__ = lambda s: s
+        stats_cursor.__exit__ = lambda s, *a: None
+        daily_cursor = _mock_cursor_with_rows([
+            ("2026-03-22", 5, 3),
+            ("2026-03-21", 5, 4),
+        ])
+        conn.cursor.side_effect = [stats_cursor, daily_cursor]
+        client = TestClient(app)
+        resp = client.get("/api/v1/admin/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_calls"] == 10
+        assert data["resolution_rate"] == 0.7
+        assert "daily" in data
+
+    def test_intents_returns_200(self):
+        app, mock_pg = _create_test_app()
+        conn = MagicMock()
+        mock_pg._acquire_conn.return_value = conn
+        cursor = _mock_cursor_with_rows([
+            ("billing_inquiry", 45, 38),
+            ("plan_change", 20, 15),
+        ])
+        conn.cursor.return_value = cursor
+        client = TestClient(app)
+        resp = client.get("/api/v1/admin/stats/intents")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["intents"]) == 2
+        assert data["intents"][0]["resolution_rate"] == 0.84
