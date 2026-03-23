@@ -138,6 +138,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.redis_store = _init_redis(config)
         app.state.bedrock_service = _init_bedrock(config)
 
+        # CallLogger 초기화
+        from server.call_logger import CallLogger
+        app.state.call_logger = CallLogger(
+            pg_conn=app.state.pg_connection,
+            llm_engine=app.state.bedrock_service,
+        )
+        # Admin API에서 사용할 pg_conn
+        app.state.pg_conn = app.state.pg_connection
+
         configure_health_dependencies(
             pg_provider=lambda: app.state.pg_connection,
             redis_provider=lambda: app.state.redis_store,
