@@ -88,10 +88,27 @@ class TurnPipeline:
         self._prompt_loader = prompt_loader
         self._metrics = metrics_collector
         self._executor = executor or _default_executor
-        # Phase E: NLU classifier DI (기본값: MockIntentClassifier)
+        # Phase E→M: NLU classifier DI (기본값: FallbackIntentClassifier)
         if intent_classifier is None:
             from callbot.nlu.intent_classifier import IntentClassifier, MockIntentClassifier
-            intent_classifier = IntentClassifier(model=MockIntentClassifier())
+            try:
+                from callbot.nlu.llm_intent_classifier import (
+                    FallbackIntentClassifier,
+                    LLMIntentClassifier,
+                )
+                llm_clf = LLMIntentClassifier(
+                    bedrock_service=llm_engine._bedrock if llm_engine else None,
+                    timeout=3.0,
+                )
+                mock_clf = MockIntentClassifier()
+                fallback_clf = FallbackIntentClassifier(primary=llm_clf, fallback=mock_clf)
+                intent_classifier = IntentClassifier(model=fallback_clf)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Failed to init LLM NLU, falling back to MockIntentClassifier"
+                )
+                intent_classifier = IntentClassifier(model=MockIntentClassifier())
         self._intent_classifier = intent_classifier
 
     async def process(
