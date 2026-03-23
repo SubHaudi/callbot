@@ -172,23 +172,49 @@ h1,h2,h3,.header-info h1{
 /* Thinking indicator */
 .thinking{
   align-self:flex-start;
-  display:flex;align-items:center;gap:4px;
-  padding:12px 18px;
+  display:flex;align-items:center;gap:12px;
+  padding:12px 18px;max-width:280px;
   background:var(--surface);border:1px solid var(--border);
   border-radius:var(--radius) var(--radius) var(--radius) 6px;
   box-shadow:var(--shadow-sm);
   animation:msgIn 0.3s cubic-bezier(0.22,1,0.36,1);
 }
-.thinking span{
-  width:6px;height:6px;border-radius:50%;
-  background:var(--text-tertiary);
-  animation:dot 1.4s ease infinite;
+.thinking-logo{
+  width:28px;height:28px;border-radius:8px;
+  background:var(--primary);
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:10px;font-weight:700;
+  font-family:'Outfit',sans-serif;letter-spacing:-0.3px;
+  flex-shrink:0;
+  will-change:transform,opacity;
+  animation:logoPulse 1.8s ease-in-out infinite;
 }
-.thinking span:nth-child(2){animation-delay:0.2s}
-.thinking span:nth-child(3){animation-delay:0.4s}
-@keyframes dot{
-  0%,60%,100%{opacity:0.3;transform:scale(0.8)}
-  30%{opacity:1;transform:scale(1)}
+@keyframes logoPulse{
+  0%,100%{transform:scale(1);opacity:1}
+  50%{transform:scale(0.88);opacity:0.6}
+}
+.thinking-text{
+  font-size:13.5px;color:var(--text-secondary);font-weight:400;
+  white-space:nowrap;
+}
+.thinking-text .dots{
+  display:inline-block;
+  width:1.5em;text-align:left;overflow:hidden;
+  vertical-align:bottom;
+  animation:ellipsis 1.5s steps(4,end) infinite;
+}
+.thinking-text .dots::after{
+  content:'...';
+}
+@keyframes ellipsis{
+  0%,100%{width:0}
+  25%{width:0.5em}
+  50%{width:1em}
+  75%{width:1.5em}
+}
+@media(prefers-reduced-motion:reduce){
+  .thinking-logo,.thinking-text .dots{animation:none}
+  .thinking-text .dots{width:1.5em}
 }
 
 /* Recording indicator */
@@ -398,7 +424,7 @@ function showThinking(){
   if(thinkingEl)return;
   thinkingEl=document.createElement('div');
   thinkingEl.className='thinking';
-  thinkingEl.innerHTML='<span></span><span></span><span></span>';
+  thinkingEl.innerHTML='<div class="thinking-logo" aria-hidden="true">AT</div><div class="thinking-text" role="status" aria-live="polite" aria-label="AI가 응답을 생성하고 있습니다">응답을 생성하고 있어요<span class="dots" aria-hidden="true"></span></div>';
   chat.appendChild(thinkingEl);
   chat.scrollTop=chat.scrollHeight;
 }
