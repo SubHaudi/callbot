@@ -46,25 +46,25 @@
    └─────────────┘  └────────────┘  └─────────────┘
 
    Voice Pipeline:
-   Browser Mic → WebSocket → Transcribe STT
-                                  ↓
-                           NLU + Pipeline
-                                  ↓
-                            Polly TTS → Speaker
+   Browser Mic → WebSocket → ALB (직접, CF 미경유) → Transcribe STT
+                                                          ↓
+                                                   NLU + Pipeline
+                                                          ↓
+                                                    Polly TTS → Speaker
 ```
 
 ## 🔧 Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Runtime | Python 3.9 / FastAPI / Uvicorn |
+| Runtime | Python 3.12 / FastAPI / Uvicorn |
 | AI/ML | Amazon Bedrock (Claude), Transcribe (STT), Polly (TTS) |
 | Database | Aurora Serverless v2 (PostgreSQL) |
 | Cache | ElastiCache Serverless (Redis) |
 | Infra | ECS Fargate, CloudFront, WAF v2, VPC |
 | IaC | Terraform (20+ files, 2-layer architecture) |
-| CI/CD | GitHub Actions + deploy.sh |
-| Test | pytest (741+ tests, 14 skipped E2E) |
+| CI/CD | GitHub Actions (CI) + deploy.sh (CD) |
+| Test | pytest (741 passed, 54k+ parametrized cases) |
 
 ## 📊 Admin Dashboard
 
@@ -78,6 +78,23 @@
 
 ## 🚀 Quick Start
 
+### Prerequisites
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) (패키지 매니저)
+- AWS credentials (Bedrock, Transcribe, Polly 접근 권한)
+
+### 로컬 실행
+```bash
+git clone https://github.com/SubHaudi/callbot.git
+cd callbot
+uv sync                    # 의존성 설치
+uv run pytest              # 테스트 실행
+uv run uvicorn server.app:app --reload  # 로컬 서버 (http://localhost:8000)
+```
+
+> ⚠️ 로컬 실행 시 Aurora/Redis 대신 인메모리 fallback 사용. 전체 기능은 AWS 인프라 필요.
+
+### 프로덕션 배포
 ```bash
 # 1. 인프라 배포 (별도 레포: callbot-infra)
 cd callbot-infra/envs/dev/foundation && terraform apply
@@ -85,9 +102,6 @@ cd callbot-infra/envs/dev/application && terraform apply
 
 # 2. 앱 배포
 ./deploy.sh --env dev
-
-# 3. 테스트
-uv run pytest  # 741+ tests
 ```
 
 See [callbot-infra](https://github.com/SubHaudi/callbot-infra) for infrastructure setup.
@@ -112,6 +126,8 @@ See [callbot-infra](https://github.com/SubHaudi/callbot-infra) for infrastructur
 ```
 
 ## 📈 Development History
+
+> Phase A-B는 초기 설계 및 기반 구축 (서버 스켈레톤, 세션 모델 등)
 
 | Phase | 내용 | PR |
 |-------|------|-----|
