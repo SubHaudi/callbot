@@ -377,6 +377,11 @@ h1,h2,h3,.header-info h1{
 </div>
 
 <div class="controls">
+  <div style="display:flex;align-items:center;gap:8px;padding:4px 16px;font-size:12px;color:var(--text-tertiary)">
+    <label for="bargeInSlider" style="white-space:nowrap">Barge-in 감도</label>
+    <input id="bargeInSlider" type="range" min="100" max="400" value="300" step="50" style="flex:1;accent-color:var(--primary)">
+    <span id="bargeInVal" style="min-width:40px;text-align:right">300ms</span>
+  </div>
   <div class="input-row">
     <button id="btnMic" class="btn btn-mic" disabled title="음성 녹음">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
@@ -405,10 +410,26 @@ const VAD_GRACE_PERIOD=1000;
 const MIN_SPEECH_DURATION=500;
 const SMOOTHING_FACTOR=0.3;
 
+// ── Auto Barge-in constants ──
+const BARGEIN_THRESHOLD_BASE=0.01;   // -40dBFS equivalent
+const BARGEIN_THRESHOLD_BOOST=10;     // +10dB during TTS (multiply by ~3.16)
+const BARGEIN_DEBOUNCE_DEFAULT=300;   // ms
+const BARGEIN_DEBOUNCE_MIN=100;
+const BARGEIN_DEBOUNCE_MAX=400;
+
 let ws=null,audioCtx=null,mediaStream=null,isRecording=false;
 let smoothedRMS=0;
 // VAD state
 let vadActive=false,recordingStartTime=0,speechAccumMs=0,hasSpeech=false,silenceStartTime=0,isAutoStop=false;
+
+// ── Auto Barge-in state ──
+let isPlayingTTS=false;
+let ttsAudioCtx=null,ttsSource=null;
+let bargeInMonitorCtx=null,bargeInStream=null,bargeInProcessor=null;
+let bargeInDebounceTimer=null;
+let bargeInDebounceMs=BARGEIN_DEBOUNCE_DEFAULT;
+let bargeInSmoothedRMS=0;
+let bargeInIndicator=null;
 
 const $=id=>document.getElementById(id);
 const chat=$('chat'),statusDot=$('statusDot'),statusLabel=$('statusLabel'),statusPill=$('statusPill');
@@ -525,11 +546,14 @@ function connect(){
       if(msg.is_final){clearPartial();addMsg(msg.text,'user')}
       else updatePartial(msg.text);
     }else if(msg.type==='response'){
+      hideBargeInIndicator();
       const metaText=msg.processing_ms?`${(msg.processing_ms/1000).toFixed(1)}초`:'';
       const el=addMsg(msg.text,'bot',metaText);
       if(msg.latency)appendLatency(el,msg.latency,msg.processing_ms);
       if(msg.audio)playPCM(msg.audio);
     }else if(msg.type==='interrupted'){
+      stopTTSPlayback();
+      hideBargeInIndicator();
       addMsg('상담이 중단되었습니다','system');
     }else if(msg.type==='fallback'){
       addMsg(msg.message,'system');
@@ -540,15 +564,102 @@ function connect(){
 }
 
 function playPCM(b64){
+  stopTTSPlayback(); // 이전 재생 중단
   const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
   const int16=new Int16Array(bytes.buffer);
   const float32=new Float32Array(int16.length);
   for(let i=0;i<int16.length;i++)float32[i]=int16[i]/32768;
-  const ctx=new AudioContext({sampleRate:SAMPLE_RATE});
-  const buf=ctx.createBuffer(1,float32.length,SAMPLE_RATE);
+  ttsAudioCtx=new AudioContext({sampleRate:SAMPLE_RATE});
+  const buf=ttsAudioCtx.createBuffer(1,float32.length,SAMPLE_RATE);
   buf.copyToChannel(float32,0);
-  const src=ctx.createBufferSource();src.buffer=buf;
-  src.connect(ctx.destination);src.start();
+  ttsSource=ttsAudioCtx.createBufferSource();ttsSource.buffer=buf;
+  ttsSource.connect(ttsAudioCtx.destination);
+  isPlayingTTS=true;
+  startBargeInMonitor();
+  ttsSource.onended=()=>{
+    isPlayingTTS=false;
+    stopBargeInMonitor();
+  };
+  ttsSource.start();
+}
+
+function stopTTSPlayback(){
+  if(ttsSource){try{ttsSource.stop()}catch(e){}}
+  if(ttsAudioCtx){try{ttsAudioCtx.close()}catch(e){}}
+  ttsSource=null;ttsAudioCtx=null;
+  isPlayingTTS=false;
+  stopBargeInMonitor();
+}
+
+// ── Auto Barge-in Monitor ──
+async function startBargeInMonitor(){
+  if(bargeInProcessor)return; // already monitoring
+  try{
+    bargeInMonitorCtx=new AudioContext({sampleRate:16000});
+    bargeInStream=await navigator.mediaDevices.getUserMedia({
+      audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true}
+    });
+  }catch(e){return} // no mic access, skip barge-in
+  const source=bargeInMonitorCtx.createMediaStreamSource(bargeInStream);
+  bargeInProcessor=bargeInMonitorCtx.createScriptProcessor(2048,1,1);
+  bargeInSmoothedRMS=0;
+  bargeInProcessor.onaudioprocess=e=>{
+    if(!isPlayingTTS){return}
+    const f32=e.inputBuffer.getChannelData(0);
+    let sum=0;for(let i=0;i<f32.length;i++)sum+=f32[i]*f32[i];
+    const rms=Math.sqrt(sum/f32.length);
+    bargeInSmoothedRMS=0.3*rms+0.7*bargeInSmoothedRMS;
+    // Dynamic threshold: base * 10^(boost/20) ≈ base * 3.16 during TTS
+    const threshold=BARGEIN_THRESHOLD_BASE*Math.pow(10,BARGEIN_THRESHOLD_BOOST/20);
+    const isSpeech=bargeInSmoothedRMS>threshold;
+    if(isSpeech){
+      if(!bargeInDebounceTimer){
+        bargeInDebounceTimer=setTimeout(()=>{
+          if(isPlayingTTS){triggerAutoBargein()}
+          bargeInDebounceTimer=null;
+        },bargeInDebounceMs);
+      }
+    }else{
+      // Sustained detection: reset timer if voice stops
+      if(bargeInDebounceTimer){clearTimeout(bargeInDebounceTimer);bargeInDebounceTimer=null}
+    }
+  };
+  source.connect(bargeInProcessor);
+  bargeInProcessor.connect(bargeInMonitorCtx.destination);
+}
+
+function stopBargeInMonitor(){
+  if(bargeInDebounceTimer){clearTimeout(bargeInDebounceTimer);bargeInDebounceTimer=null}
+  if(bargeInProcessor){try{bargeInProcessor.disconnect()}catch(e){}}
+  bargeInProcessor=null;
+  if(bargeInStream){bargeInStream.getTracks().forEach(t=>t.stop())}
+  bargeInStream=null;
+  if(bargeInMonitorCtx){try{bargeInMonitorCtx.close()}catch(e){}}
+  bargeInMonitorCtx=null;
+  bargeInSmoothedRMS=0;
+  hideBargeInIndicator();
+}
+
+function triggerAutoBargein(){
+  // Local TTS stop immediately (FR-003)
+  stopTTSPlayback();
+  // Send interrupt to server
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}));
+  // Visual feedback
+  showBargeInIndicator();
+  hideThinking();
+}
+
+function showBargeInIndicator(){
+  if(bargeInIndicator)return;
+  bargeInIndicator=document.createElement('div');
+  bargeInIndicator.className='recording-indicator';
+  bargeInIndicator.innerHTML='<div class="rec-dot" style="background:var(--accent)"></div><span>듣고 있어요...</span>';
+  chat.appendChild(bargeInIndicator);
+  chat.scrollTop=chat.scrollHeight;
+}
+function hideBargeInIndicator(){
+  if(bargeInIndicator){bargeInIndicator.remove();bargeInIndicator=null}
 }
 
 async function startRecording(){
@@ -634,7 +745,7 @@ function sendText(text){
 }
 
 btnMic.onclick=()=>{if(isRecording)stopRecording();else startRecording()};
-btnInterrupt.onclick=()=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}))};
+btnInterrupt.onclick=()=>{stopTTSPlayback();if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}))};
 btnEndRec.onclick=()=>stopRecording();
 btnSend.onclick=()=>sendText(txtInput.value.trim());
 txtInput.onkeydown=e=>{if(e.key==='Enter')btnSend.onclick()};
@@ -642,6 +753,15 @@ txtInput.onkeydown=e=>{if(e.key==='Enter')btnSend.onclick()};
 document.querySelectorAll('.chip').forEach(el=>{
   el.onclick=()=>{const q=el.dataset.q;if(q)sendText(q)};
 });
+
+// ── Barge-in debounce slider ──
+const bargeInSlider=$('bargeInSlider'),bargeInVal=$('bargeInVal');
+if(bargeInSlider){
+  bargeInSlider.oninput=()=>{
+    bargeInDebounceMs=parseInt(bargeInSlider.value);
+    bargeInVal.textContent=bargeInDebounceMs+'ms';
+  };
+}
 
 connect();
 </script>
