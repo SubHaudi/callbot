@@ -150,3 +150,26 @@ class TestStats:
         data = resp.json()
         assert len(data["intents"]) == 2
         assert data["intents"][0]["resolution_rate"] == 0.84
+
+
+class TestAdminWebSocket:
+    """실시간 WebSocket 테스트 (Phase P)."""
+
+    def test_ws_connects_and_receives_stats(self):
+        """WS 연결 후 stats_update 메시지 수신."""
+        import json
+        app, mock_pg = _create_test_app()
+        mock_conn = MagicMock()
+        mock_pg._acquire_conn.return_value = mock_conn
+
+        cursor = _mock_cursor_with_rows([(10, 7, 3.5, 120.0, 2)])
+        mock_conn.cursor.return_value = cursor
+
+        client = TestClient(app)
+        with client.websocket_connect("/api/v1/admin/ws") as ws:
+            data = json.loads(ws.receive_text())
+            assert data["type"] == "stats_update"
+            assert "total_calls" in data
+            assert "resolution_rate" in data
+            assert "last_hour_calls" in data
+            assert "connected_clients" in data

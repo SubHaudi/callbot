@@ -90,6 +90,8 @@ tr:hover td{background:var(--primary-soft)}
       <div class="kpi"><div class="kpi-label">해결률</div><div class="kpi-value" id="kpi-rate">-</div><div class="kpi-sub" id="kpi-rate-sub"></div></div>
       <div class="kpi"><div class="kpi-label">평균 턴 수</div><div class="kpi-value" id="kpi-turns">-</div></div>
       <div class="kpi"><div class="kpi-label">평균 통화 시간</div><div class="kpi-value" id="kpi-duration">-</div></div>
+      <div class="kpi"><div class="kpi-label">최근 1시간</div><div class="kpi-value" id="kpi-lasthour">-</div></div>
+      <div class="kpi"><div class="kpi-label">실시간 연결 <span id="ws-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ccc;vertical-align:middle;margin-left:4px"></span></div><div class="kpi-value" id="kpi-clients">-</div></div>
     </div>
     <div class="charts">
       <div class="chart-card"><h3>일별 통화 건수 (최근 30일)</h3><canvas id="dailyChart"></canvas></div>
@@ -241,6 +243,34 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 
 // Init
 loadOverview();
+
+// ── 실시간 WebSocket (Phase P) ──
+(function(){
+  const dot=document.getElementById('ws-dot');
+  let ws,retryMs=1000;
+  function connect(){
+    const proto=location.protocol==='https:'?'wss:':'ws:';
+    ws=new WebSocket(`${proto}//${location.host}/api/v1/admin/ws`);
+    ws.onopen=()=>{dot.style.background='#4caf50';retryMs=1000};
+    ws.onclose=()=>{dot.style.background='#f44336';setTimeout(connect,retryMs);retryMs=Math.min(retryMs*2,30000)};
+    ws.onerror=()=>ws.close();
+    ws.onmessage=(e)=>{
+      try{
+        const d=JSON.parse(e.data);
+        if(d.type==='stats_update'){
+          const el=id=>document.getElementById(id);
+          el('kpi-total').textContent=d.total_calls.toLocaleString();
+          el('kpi-rate').textContent=Math.round(d.resolution_rate*100)+'%';
+          el('kpi-turns').textContent=d.avg_turns;
+          el('kpi-duration').textContent=Math.round(d.avg_duration_seconds)+'초';
+          el('kpi-lasthour').textContent=d.last_hour_calls;
+          el('kpi-clients').textContent=d.connected_clients;
+        }
+      }catch(err){console.warn('WS parse error',err)}
+    };
+  }
+  connect();
+})();
 </script>
 </body>
 </html>

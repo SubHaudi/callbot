@@ -1,10 +1,12 @@
 """callbot.server.admin_routes — 관리자 API 라우터."""
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -202,3 +204,80 @@ def get_intent_stats(request: Request) -> Dict[str, Any]:
         return {"intents": intents}
     finally:
         pg._release_conn(conn, close=False)
+
+
+# ── WebSocket: 실시간 대시보드 (Phase P) ──
+
+_ws_clients: set[WebSocket] = set()
+
+
+def _fetch_realtime_stats(pg: Any) -> Dict[str, Any]:
+    """실시간 KPI 데이터 조회."""
+    conn = pg._acquire_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT COUNT(*),
+                          COUNT(*) FILTER (WHERE resolution = 'resolved'),
+                          AVG(total_turn_count),
+                          AVG(EXTRACT(EPOCH FROM (end_time - start_time))),
+                          COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '1 hour')
+                   FROM conversation_sessions
+                   WHERE start_time >= NOW() - INTERVAL '30 days'"""
+            )
+            row = cur.fetchone()
+            total = row[0] or 0
+            resolved = row[1] or 0
+            avg_turns = float(row[2] or 0)
+            avg_duration = float(row[3] or 0)
+            last_hour = row[4] or 0
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT session_id, caller_id, start_time, resolution, primary_intent
+                   FROM conversation_sessions
+                   ORDER BY start_time DESC LIMIT 5"""
+            )
+            recent = [
+                {"session_id": r[0], "caller_id": r[1],
+                 "start_time": str(r[2]) if r[2] else None,
+                 "resolution": r[3], "primary_intent": r[4]}
+                for r in cur.fetchall()
+            ]
+
+        return {
+            "type": "stats_update",
+            "total_calls": total,
+            "resolution_rate": round(resolved / total, 2) if total > 0 else 0,
+            "avg_turns": round(avg_turns, 1),
+            "avg_duration_seconds": round(avg_duration, 0),
+            "last_hour_calls": last_hour,
+            "recent_calls": recent,
+            "connected_clients": len(_ws_clients),
+        }
+    finally:
+        pg._release_conn(conn, close=False)
+
+
+@router.websocket("/ws")
+async def admin_ws(websocket: WebSocket):
+    """실시간 대시보드 WebSocket — 5초마다 KPI push."""
+    await websocket.accept()
+    _ws_clients.add(websocket)
+    logger.info("Admin WS connected (total: %d)", len(_ws_clients))
+    try:
+        pg = websocket.app.state.pg_conn
+        while True:
+            try:
+                data = _fetch_realtime_stats(pg)
+                await websocket.send_text(json.dumps(data, default=str))
+            except Exception:
+                logger.warning("Failed to fetch realtime stats", exc_info=True)
+            await asyncio.sleep(5)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.warning("Admin WS error", exc_info=True)
+    finally:
+        _ws_clients.discard(websocket)
+        logger.info("Admin WS disconnected (total: %d)", len(_ws_clients))
