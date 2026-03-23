@@ -52,3 +52,37 @@ class TestExtractPrimaryIntent:
             _turn(intent=None),
         ]
         assert cl._extract_primary_intent(turns) == "billing_inquiry"
+
+
+class TestGenerateSummary:
+    def test_summary_within_200_chars(self):
+        class FakeLLM:
+            def generate(self, prompt):
+                return "고객이 요금을 조회하고 정상 확인함"
+        cl = CallLogger(pg_conn=None, llm_engine=FakeLLM())
+        turns = [_turn(user_text="요금 조회", bot_text="현재 요금은 55,000원입니다")]
+        result = cl._generate_summary(turns)
+        assert result is not None
+        assert len(result) <= 200
+
+    def test_summary_truncated_if_over_200(self):
+        class VerboseLLM:
+            def generate(self, prompt):
+                return "가" * 300
+        cl = CallLogger(pg_conn=None, llm_engine=VerboseLLM())
+        result = cl._generate_summary([_turn()])
+        assert result is not None
+        assert len(result) <= 200
+
+    def test_summary_none_on_failure(self):
+        class FailLLM:
+            def generate(self, prompt):
+                raise RuntimeError("LLM error")
+        cl = CallLogger(pg_conn=None, llm_engine=FailLLM())
+        result = cl._generate_summary([_turn()])
+        assert result is None
+
+    def test_summary_none_when_no_llm(self):
+        cl = CallLogger(pg_conn=None, llm_engine=None)
+        result = cl._generate_summary([_turn()])
+        assert result is None
