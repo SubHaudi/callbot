@@ -15,11 +15,11 @@ class LLMEngineConfig:
 
     Attributes:
         confidence_threshold: 환각 검증기 확신도 임계값 (기본 0.7, 범위 0.5~0.9)
-        max_syllables: 일반 응답 최대 음절 수 (기본 150)
+        max_syllables: 일반 응답 최대 글자 수 (기본 80)
         max_syllables_legal: 법적 필수 안내 최대 음절 수 (기본 300)
     """
     confidence_threshold: float = 0.7
-    max_syllables: int = 150
+    max_syllables: int = 80
     max_syllables_legal: int = 300
 
 

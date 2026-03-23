@@ -20,7 +20,7 @@ _FACTUAL_INTENTS: frozenset[Intent] = frozenset({
     Intent.PLAN_INQUIRY,
 })
 
-_MAX_SYLLABLES_DEFAULT = 150
+_MAX_SYLLABLES_DEFAULT = 80
 _MAX_SYLLABLES_LEGAL = 300
 _END_CALL_SIGNALS: list[str] = ["끊을게요", "종료", "그만", "됐어요"]
 _SYSTEM_PROMPT_FALLBACK = "죄송합니다, 다시 말씀해 주시겠어요?"
@@ -49,7 +49,7 @@ class ResponseSplitter:
 
     _SENTENCE_ENDINGS = (".", "?", "!", "。")
 
-    def split(self, text: str, max_syllables: int = 150) -> list[str]:
+    def split(self, text: str, max_syllables: int = 80) -> list[str]:
         if len(text) <= max_syllables:
             return [text]
         best_split = -1

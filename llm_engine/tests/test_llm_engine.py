@@ -122,18 +122,18 @@ class TestPromptUnification:
 class TestResponseLengthLimit:
     """generate_response 응답 길이 제한 테스트."""
 
-    def test_response_length_within_150_when_not_legal_required(
+    def test_response_length_within_80_when_not_legal_required(
         self, engine: LLMEngine, session: SessionContext
     ):
-        """is_legal_required=False → 응답 길이 ≤ 150음절."""
-        # MockLLMService가 150자 초과 응답을 반환하도록 설정
+        """is_legal_required=False → 응답 길이 ≤ 80자."""
+        # MockLLMService가 80자 초과 응답을 반환하도록 설정
         long_text = "가" * 200  # 200자 응답
         engine.llm_service = MockLLMService(response=long_text)
 
         classification = make_classification(Intent.GENERAL_INQUIRY)
         result = engine.generate_response(classification, session)
 
-        assert len(result.text) <= 150
+        assert len(result.text) <= 80
 
     def test_response_length_within_300_when_legal_required(
         self, engine: LLMEngine, session: SessionContext

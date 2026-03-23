@@ -268,7 +268,7 @@ class TestLLMEngineConfigIntegration:
         """기본 설정값 확인."""
         config = LLMEngineConfig()
         assert config.confidence_threshold == 0.7
-        assert config.max_syllables == 150
+        assert config.max_syllables == 80
         assert config.max_syllables_legal == 300
 
     def test_custom_config_applied_to_verifier(self, session: SessionContext):
