@@ -64,6 +64,17 @@ def _ensure_schema(pg_conn: Any) -> None:
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            # Phase J: 통화 기록 + 분석 컬럼 확장
+            for stmt in [
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS resolution TEXT DEFAULT 'unknown'",
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS call_summary TEXT",
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS primary_intent TEXT",
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS summary_generated_at TIMESTAMPTZ",
+                "CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON conversation_sessions(start_time DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sessions_resolution ON conversation_sessions(resolution)",
+                "CREATE INDEX IF NOT EXISTS idx_sessions_caller_id ON conversation_sessions(caller_id)",
+            ]:
+                cur.execute(stmt)
         logger.info("DB 스키마 확인 완료")
     finally:
         pg_conn._release_conn(conn, close=False)
