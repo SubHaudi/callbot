@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from callbot.health.router import configure_health_dependencies, router as health_router
 from server.config import ServerConfig
 from server.routes import router as api_router
+from server.admin_routes import router as admin_router
 from callbot.session.exceptions import SessionNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,17 @@ def _ensure_schema(pg_conn: Any) -> None:
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            # Phase J: 통화 기록 + 분석 컬럼 확장
+            for stmt in [
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS resolution TEXT DEFAULT 'unknown'",
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS call_summary TEXT",
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS primary_intent TEXT",
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS summary_generated_at TIMESTAMPTZ",
+                "CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON conversation_sessions(start_time DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sessions_resolution ON conversation_sessions(resolution)",
+                "CREATE INDEX IF NOT EXISTS idx_sessions_caller_id ON conversation_sessions(caller_id)",
+            ]:
+                cur.execute(stmt)
         logger.info("DB 스키마 확인 완료")
     finally:
         pg_conn._release_conn(conn, close=False)
@@ -125,6 +137,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _ensure_schema(app.state.pg_connection)
         app.state.redis_store = _init_redis(config)
         app.state.bedrock_service = _init_bedrock(config)
+
+        # CallLogger 초기화
+        from server.call_logger import CallLogger
+        app.state.call_logger = CallLogger(
+            pg_conn=app.state.pg_connection,
+            llm_engine=app.state.bedrock_service,
+        )
+        # Admin API에서 사용할 pg_conn
+        app.state.pg_conn = app.state.pg_connection
 
         configure_health_dependencies(
             pg_provider=lambda: app.state.pg_connection,
@@ -201,6 +222,9 @@ def create_app() -> FastAPI:
     from server.voice_ws import router as voice_router
     app.include_router(voice_router)
 
+    # Admin API router
+    app.include_router(admin_router)
+
     # Demo static files
     import pathlib
     from fastapi.responses import HTMLResponse
@@ -211,6 +235,14 @@ def create_app() -> FastAPI:
         if demo_html.exists():
             return demo_html.read_text(encoding="utf-8")
         return HTMLResponse("<h1>Demo not found</h1>", status_code=404)
+
+    admin_html = pathlib.Path(__file__).parent / "static" / "admin.html"
+
+    @app.get("/admin", response_class=HTMLResponse)
+    async def admin_page():
+        if admin_html.exists():
+            return admin_html.read_text(encoding="utf-8")
+        return HTMLResponse("<h1>Admin not found</h1>", status_code=404)
 
     # Error handlers
     @app.exception_handler(SessionNotFoundError)

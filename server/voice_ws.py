@@ -127,6 +127,14 @@ async def voice_websocket(websocket: WebSocket) -> None:
             await websocket.send_text(json.dumps(make_error(f"Internal error: {type(e).__name__}")))
     finally:
         voice_server.end_session(session_id)
+        # 통화 기록 + 요약 (별도 스레드에서 실행 — 이벤트 루프 블로킹 방지)
+        call_logger = getattr(websocket.app.state, "call_logger", None)
+        if call_logger:
+            import asyncio
+            turns = []  # 턴 이력은 DB에서 조회하도록 CallLogger에 위임
+            asyncio.ensure_future(
+                asyncio.to_thread(call_logger.finalize_session, session_id, turns, "normal")
+            )
         logger.info("Voice WS session cleaned up: session=%s", session_id)
 
 
