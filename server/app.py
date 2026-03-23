@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from callbot.health.router import configure_health_dependencies, router as health_router
 from server.config import ServerConfig
 from server.routes import router as api_router
+from server.admin_routes import router as admin_router
 from callbot.session.exceptions import SessionNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,9 @@ def create_app() -> FastAPI:
     from server.voice_ws import router as voice_router
     app.include_router(voice_router)
 
+    # Admin API router
+    app.include_router(admin_router)
+
     # Demo static files
     import pathlib
     from fastapi.responses import HTMLResponse
@@ -222,6 +226,14 @@ def create_app() -> FastAPI:
         if demo_html.exists():
             return demo_html.read_text(encoding="utf-8")
         return HTMLResponse("<h1>Demo not found</h1>", status_code=404)
+
+    admin_html = pathlib.Path(__file__).parent / "static" / "admin.html"
+
+    @app.get("/admin", response_class=HTMLResponse)
+    async def admin_page():
+        if admin_html.exists():
+            return admin_html.read_text(encoding="utf-8")
+        return HTMLResponse("<h1>Admin not found</h1>", status_code=404)
 
     # Error handlers
     @app.exception_handler(SessionNotFoundError)
