@@ -103,6 +103,22 @@ class TestIsFactualRequiresVerificationConsistency:
 # Validates: Requirements 1.3
 # ---------------------------------------------------------------------------
 
+class TestPromptUnification:
+    """LLMEngine이 PromptLoader에서 프롬프트를 가져오는지 검증."""
+
+    def test_llm_engine_uses_prompt_loader(self, session: SessionContext):
+        """_build_system_prompt()가 PromptLoader.base_prompt와 동일한 텍스트를 반환."""
+        from callbot.llm_engine.prompt_loader import PromptLoader as BasePromptLoader
+        loader = BasePromptLoader()
+        engine = LLMEngine(prompt_loader=loader)
+        assert engine._build_system_prompt(session) == loader.base_prompt
+
+    def test_llm_engine_default_prompt_loader(self, session: SessionContext):
+        """prompt_loader 미전달 시 기본 PromptLoader 사용."""
+        engine = LLMEngine()
+        assert "AnyTelecom" in engine._build_system_prompt(session)
+
+
 class TestResponseLengthLimit:
     """generate_response 응답 길이 제한 테스트."""
 
