@@ -11,6 +11,7 @@ from callbot.nlu.models import ClassificationResult
 from callbot.session.models import SessionContext
 from callbot.llm_engine.enums import ScopeType
 from callbot.llm_engine.models import LLMResponse
+from callbot.llm_engine.prompt_loader import PromptLoader as BasePromptLoader
 
 _FACTUAL_INTENTS: frozenset[Intent] = frozenset({
     Intent.BILLING_INQUIRY,
@@ -99,8 +100,13 @@ class PromptLoader:
 class LLMEngine:
     """LLM 기반 응답 생성 엔진."""
 
-    def __init__(self, llm_service: Optional[LLMServiceBase] = None) -> None:
+    def __init__(
+        self,
+        llm_service: Optional[LLMServiceBase] = None,
+        prompt_loader: Optional[BasePromptLoader] = None,
+    ) -> None:
         self.llm_service: LLMServiceBase = llm_service or MockLLMService()
+        self._base_prompt_loader = prompt_loader or BasePromptLoader()
         self.SYSTEM_PROMPT_KEYWORDS: list[str] = ["당신은 AI", "시스템 프롬프트"]
         self.ROLE_DEVIATION_PATTERNS: list[str] = ["```python", "```java", "코드를 작성"]
         self._splitter = ResponseSplitter()
@@ -193,10 +199,7 @@ class LLMEngine:
         return intent in _FACTUAL_INTENTS
 
     def _build_system_prompt(self, session: SessionContext) -> str:
-        return (
-            "당신은 AnyTelecom 통신사 고객 상담 AI입니다. "
-            "통신 서비스 관련 문의에만 답변하며, 고객에게 정확하고 친절한 안내를 제공합니다."
-        )
+        return self._base_prompt_loader.base_prompt
 
     def _build_user_message(self, classification: ClassificationResult, customer_text: str) -> str:
         intent_label = classification.primary_intent.value
