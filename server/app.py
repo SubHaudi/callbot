@@ -229,12 +229,29 @@ def create_app() -> FastAPI:
     import pathlib
     from fastapi.responses import HTMLResponse
     demo_html = pathlib.Path(__file__).resolve().parent.parent / "voice_io" / "demo" / "index.html"
+    demo_dir = demo_html.parent
 
     @app.get("/demo", response_class=HTMLResponse)
     async def demo_page():
         if demo_html.exists():
             return demo_html.read_text(encoding="utf-8")
         return HTMLResponse("<h1>Demo not found</h1>", status_code=404)
+
+    # PWA static files (manifest, sw, icons)
+    from fastapi.responses import FileResponse
+
+    @app.get("/demo/{filename:path}")
+    async def demo_static(filename: str):
+        fpath = demo_dir / filename
+        if fpath.exists() and fpath.is_file() and demo_dir in fpath.resolve().parents:
+            content_types = {
+                ".json": "application/json",
+                ".js": "application/javascript",
+                ".png": "image/png",
+            }
+            ct = content_types.get(fpath.suffix, "application/octet-stream")
+            return FileResponse(fpath, media_type=ct)
+        return HTMLResponse("Not found", status_code=404)
 
     admin_html = pathlib.Path(__file__).parent / "static" / "admin.html"
 
