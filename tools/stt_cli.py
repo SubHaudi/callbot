@@ -2,9 +2,8 @@
 """AWS Transcribe Streaming CLI — 마이크로 실시간 한국어 STT 테스트.
 
 Usage:
-    pip install amazon-transcribe aiofile pyaudio
-    python stt_cli.py [--region ap-northeast-2] [--lang ko-KR]
-
+    uv run --with amazon-transcribe --with pyaudio python stt_cli.py
+    
 마이크로 말하면 실시간으로 텍스트가 출력됩니다.
 Ctrl+C로 종료.
 """
@@ -13,14 +12,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import threading
 
-# pyaudio import
 try:
     import pyaudio
 except ImportError:
-    print("❌ pyaudio 필요: pip install pyaudio")
-    print("   macOS: brew install portaudio && pip install pyaudio")
-    print("   Ubuntu: sudo apt install portaudio19-dev && pip install pyaudio")
+    print("❌ pyaudio 필요: --with pyaudio")
+    print("   macOS: brew install portaudio")
     sys.exit(1)
 
 try:
@@ -28,24 +26,17 @@ try:
     from amazon_transcribe.handlers import TranscriptResultStreamHandler
     from amazon_transcribe.model import TranscriptEvent
 except ImportError:
-    print("❌ amazon-transcribe 필요: pip install amazon-transcribe")
+    print("❌ amazon-transcribe 필요: --with amazon-transcribe")
     sys.exit(1)
 
 
 SAMPLE_RATE = 16000
 CHANNELS = 1
-CHUNK_DURATION_MS = 100  # 100ms 단위 전송
-CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1600 samples
+CHUNK_SIZE = 1600  # 100ms @ 16kHz
 FORMAT = pyaudio.paInt16
 
 
 class LiveHandler(TranscriptResultStreamHandler):
-    """실시간 partial/final 결과를 터미널에 출력."""
-
-    def __init__(self, output_stream):
-        super().__init__(output_stream)
-        self._last_partial = ""
-
     async def handle_transcript_event(self, transcript_event: TranscriptEvent):
         results = transcript_event.transcript.results
         for result in results:
@@ -54,45 +45,43 @@ class LiveHandler(TranscriptResultStreamHandler):
                 if not text:
                     continue
                 if result.is_partial:
-                    # partial: 같은 줄에 덮어쓰기
                     sys.stdout.write(f"\r\033[K💬 {text}")
                     sys.stdout.flush()
-                    self._last_partial = text
                 else:
-                    # final: 확정 — 줄바꿈
                     conf_items = alt.items or []
                     confs = [
-                        getattr(item, "confidence", None)
+                        float(getattr(item, "confidence", 0))
                         for item in conf_items
                         if getattr(item, "confidence", None) is not None
                     ]
-                    avg_conf = sum(float(c) for c in confs) / len(confs) if confs else 0
+                    avg_conf = sum(confs) / len(confs) if confs else 0
                     sys.stdout.write(f"\r\033[K✅ {text}")
                     if avg_conf > 0:
                         sys.stdout.write(f"  ({avg_conf:.0%})")
                     sys.stdout.write("\n")
                     sys.stdout.flush()
-                    self._last_partial = ""
 
 
-async def mic_stream(pa: pyaudio.PyAudio) -> asyncio.Queue:
-    """마이크 → asyncio.Queue로 오디오 청크 전달."""
-    queue: asyncio.Queue = asyncio.Queue()
-    stream = pa.open(
+async def run(region: str, lang: str):
+    pa = pyaudio.PyAudio()
+
+    # 스레드 안전 큐 사용 (pyaudio callback은 별도 스레드)
+    import queue
+    audio_queue: queue.Queue = queue.Queue()
+
+    def callback(in_data, frame_count, time_info, status):
+        audio_queue.put(in_data)
+        return (None, pyaudio.paContinue)
+
+    mic = pa.open(
         format=FORMAT,
         channels=CHANNELS,
         rate=SAMPLE_RATE,
         input=True,
         frames_per_buffer=CHUNK_SIZE,
-        stream_callback=lambda data, *_: (queue.put_nowait(data), (None, pyaudio.paContinue))[1],
+        stream_callback=callback,
     )
-    stream.start_stream()
-    return queue, stream
-
-
-async def run(region: str, lang: str):
-    pa = pyaudio.PyAudio()
-    queue, mic = await mic_stream(pa)
+    mic.start_stream()
 
     client = TranscribeStreamingClient(region=region)
     stream = await client.start_stream_transcription(
@@ -107,11 +96,13 @@ async def run(region: str, lang: str):
     print(f"   말해보세요! Ctrl+C로 종료.\n")
 
     async def feed_audio():
+        loop = asyncio.get_event_loop()
         try:
             while True:
-                chunk = await queue.get()
+                # 블로킹 queue.get()을 executor에서 실행
+                chunk = await loop.run_in_executor(None, audio_queue.get)
                 await stream.input_stream.send_audio_event(audio_chunk=chunk)
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, Exception):
             pass
         finally:
             await stream.input_stream.end_stream()
@@ -130,9 +121,9 @@ async def run(region: str, lang: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AWS Transcribe Streaming CLI — 실시간 한국어 STT")
-    parser.add_argument("--region", default="ap-northeast-2", help="AWS region (default: ap-northeast-2)")
-    parser.add_argument("--lang", default="ko-KR", help="언어 코드 (default: ko-KR)")
+    parser = argparse.ArgumentParser(description="AWS Transcribe Streaming — 실시간 STT CLI")
+    parser.add_argument("--region", default="ap-northeast-2")
+    parser.add_argument("--lang", default="ko-KR")
     args = parser.parse_args()
 
     print("=" * 50)
