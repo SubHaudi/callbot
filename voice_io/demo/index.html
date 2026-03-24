@@ -384,8 +384,8 @@ h1,h2,h3,.header-info h1{
 <div class="controls">
   <div style="display:flex;align-items:center;gap:8px;padding:4px 16px;font-size:12px;color:var(--text-tertiary)">
     <label for="bargeInSlider" style="white-space:nowrap">Barge-in 감도</label>
-    <input id="bargeInSlider" type="range" min="100" max="400" value="300" step="50" style="flex:1;accent-color:var(--primary)">
-    <span id="bargeInVal" style="min-width:40px;text-align:right">300ms</span>
+    <input id="bargeInSlider" type="range" min="100" max="400" value="150" step="50" style="flex:1;accent-color:var(--primary)">
+    <span id="bargeInVal" style="min-width:40px;text-align:right">150ms</span>
   </div>
   <div class="input-row">
     <button id="btnMic" class="btn btn-mic" disabled title="음성 녹음">
@@ -418,7 +418,7 @@ const SMOOTHING_FACTOR=0.3;
 // ── Auto Barge-in constants ──
 const BARGEIN_THRESHOLD_BASE=0.01;   // -40dBFS equivalent
 const BARGEIN_THRESHOLD_BOOST=10;     // +10dB during TTS (multiply by ~3.16)
-const BARGEIN_DEBOUNCE_DEFAULT=300;   // ms
+const BARGEIN_DEBOUNCE_DEFAULT=150;   // ms
 const BARGEIN_DEBOUNCE_MIN=100;
 const BARGEIN_DEBOUNCE_MAX=400;
 
@@ -435,6 +435,14 @@ let bargeInDebounceTimer=null;
 let bargeInDebounceMs=BARGEIN_DEBOUNCE_DEFAULT;
 let bargeInSmoothedRMS=0;
 let bargeInIndicator=null;
+
+// ── Pre-buffer for barge-in (ring buffer, 500ms of PCM) ──
+const PREBUFFER_DURATION_MS=500;
+const PREBUFFER_SAMPLE_RATE=16000;
+const PREBUFFER_MAX_SAMPLES=Math.ceil(PREBUFFER_SAMPLE_RATE*PREBUFFER_DURATION_MS/1000);
+let preBuffer=new Float32Array(PREBUFFER_MAX_SAMPLES);
+let preBufferWritePos=0;
+let preBufferFilled=false; // true once ring buffer has wrapped
 
 const $=id=>document.getElementById(id);
 const chat=$('chat'),statusDot=$('statusDot'),statusLabel=$('statusLabel'),statusPill=$('statusPill');
@@ -608,9 +616,18 @@ async function startBargeInMonitor(){
   const source=bargeInMonitorCtx.createMediaStreamSource(bargeInStream);
   bargeInProcessor=bargeInMonitorCtx.createScriptProcessor(2048,1,1);
   bargeInSmoothedRMS=0;
+  preBuffer=new Float32Array(PREBUFFER_MAX_SAMPLES);
+  preBufferWritePos=0;
+  preBufferFilled=false;
   bargeInProcessor.onaudioprocess=e=>{
     if(!isPlayingTTS){return}
     const f32=e.inputBuffer.getChannelData(0);
+    // Fill ring pre-buffer
+    for(let i=0;i<f32.length;i++){
+      preBuffer[preBufferWritePos]=f32[i];
+      preBufferWritePos++;
+      if(preBufferWritePos>=PREBUFFER_MAX_SAMPLES){preBufferWritePos=0;preBufferFilled=true}
+    }
     let sum=0;for(let i=0;i<f32.length;i++)sum+=f32[i]*f32[i];
     const rms=Math.sqrt(sum/f32.length);
     bargeInSmoothedRMS=0.3*rms+0.7*bargeInSmoothedRMS;
@@ -646,6 +663,8 @@ function stopBargeInMonitor(){
 }
 
 function triggerAutoBargein(){
+  // Capture pre-buffer before stopping monitor
+  const preBufferData=getPreBufferData();
   // Local TTS stop immediately (FR-003)
   stopTTSPlayback();
   // Send interrupt to server
@@ -653,6 +672,38 @@ function triggerAutoBargein(){
   // Visual feedback
   showBargeInIndicator();
   hideThinking();
+  // Flush pre-buffer to STT then start recording
+  flushPreBufferAndRecord(preBufferData);
+}
+
+function getPreBufferData(){
+  // Extract ring buffer contents in chronological order
+  let data;
+  if(preBufferFilled){
+    // Buffer has wrapped: read from writePos to end, then start to writePos
+    data=new Float32Array(PREBUFFER_MAX_SAMPLES);
+    data.set(preBuffer.subarray(preBufferWritePos),0);
+    data.set(preBuffer.subarray(0,preBufferWritePos),PREBUFFER_MAX_SAMPLES-preBufferWritePos);
+  }else{
+    data=preBuffer.subarray(0,preBufferWritePos);
+  }
+  return new Float32Array(data); // copy
+}
+
+function flushPreBufferAndRecord(preData){
+  // Send pre-buffer audio chunks to server as STT audio
+  if(preData.length>0&&ws&&ws.readyState===1){
+    const i16=new Int16Array(preData.length);
+    for(let i=0;i<preData.length;i++){const s=Math.max(-1,Math.min(1,preData[i]));i16[i]=s<0?s*0x8000:s*0x7FFF}
+    const bytes=new Uint8Array(i16.buffer);
+    for(let off=0;off<bytes.length;off+=CHUNK_SIZE){
+      const chunk=bytes.slice(off,off+CHUNK_SIZE);
+      if(chunk.length===CHUNK_SIZE)
+        ws.send(JSON.stringify({type:'audio',data:btoa(String.fromCharCode(...chunk))}));
+    }
+  }
+  // Start live recording
+  startRecording();
 }
 
 function showBargeInIndicator(){
@@ -749,7 +800,21 @@ function sendText(text){
   showThinking();
 }
 
-btnMic.onclick=()=>{if(isRecording)stopRecording();else startRecording()};
+btnMic.onclick=()=>{
+  if(isRecording){stopRecording()}
+  else{
+    // If TTS is playing, stop it and send interrupt first
+    if(isPlayingTTS){
+      const preData=getPreBufferData();
+      stopTTSPlayback();
+      if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}));
+      hideThinking();
+      flushPreBufferAndRecord(preData);
+    }else{
+      startRecording();
+    }
+  }
+};
 btnInterrupt.onclick=()=>{stopTTSPlayback();if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}))};
 btnEndRec.onclick=()=>stopRecording();
 btnSend.onclick=()=>sendText(txtInput.value.trim());
