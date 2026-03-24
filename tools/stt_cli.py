@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import sys
 import threading
+from datetime import datetime
 
 try:
     import pyaudio
@@ -37,6 +38,11 @@ FORMAT = pyaudio.paInt16
 
 
 class LiveHandler(TranscriptResultStreamHandler):
+    def __init__(self, output_stream, log_file=None):
+        super().__init__(output_stream)
+        self.log_file = log_file
+        self.finals: list[str] = []
+
     async def handle_transcript_event(self, transcript_event: TranscriptEvent):
         results = transcript_event.transcript.results
         for result in results:
@@ -60,10 +66,18 @@ class LiveHandler(TranscriptResultStreamHandler):
                         sys.stdout.write(f"  ({avg_conf:.0%})")
                     sys.stdout.write("\n")
                     sys.stdout.flush()
+                    self.finals.append(text)
+                    if self.log_file:
+                        ts = datetime.now().strftime("%H:%M:%S")
+                        self.log_file.write(f"[{ts}] {text}\n")
+                        self.log_file.flush()
 
 
-async def run(region: str, lang: str):
+async def run(region: str, lang: str, output: str | None):
     pa = pyaudio.PyAudio()
+    log_file = None
+    if output:
+        log_file = open(output, "w", encoding="utf-8")
 
     # 스레드 안전 큐 사용 (pyaudio callback은 별도 스레드)
     import queue
@@ -90,7 +104,7 @@ async def run(region: str, lang: str):
         media_encoding="pcm",
     )
 
-    handler = LiveHandler(stream.output_stream)
+    handler = LiveHandler(stream.output_stream, log_file)
 
     print(f"🎙️  마이크 준비 완료 (region={region}, lang={lang})")
     print(f"   말해보세요! Ctrl+C로 종료.\n")
@@ -118,12 +132,16 @@ async def run(region: str, lang: str):
         mic.stop_stream()
         mic.close()
         pa.terminate()
+        if log_file:
+            log_file.close()
+            print(f"\n📄 저장됨: {output} ({len(handler.finals)}문장)")
 
 
 def main():
     parser = argparse.ArgumentParser(description="AWS Transcribe Streaming — 실시간 STT CLI")
     parser.add_argument("--region", default="ap-northeast-2")
     parser.add_argument("--lang", default="ko-KR")
+    parser.add_argument("-o", "--output", default=None, help="텍스트 저장 파일 (예: output.txt)")
     args = parser.parse_args()
 
     print("=" * 50)
@@ -131,7 +149,7 @@ def main():
     print("=" * 50)
 
     try:
-        asyncio.run(run(args.region, args.lang))
+        asyncio.run(run(args.region, args.lang, args.output))
     except KeyboardInterrupt:
         print("\n\n👋 종료!")
 
