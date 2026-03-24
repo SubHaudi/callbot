@@ -384,8 +384,8 @@ h1,h2,h3,.header-info h1{
 <div class="controls">
   <div style="display:flex;align-items:center;gap:8px;padding:4px 16px;font-size:12px;color:var(--text-tertiary)">
     <label for="bargeInSlider" style="white-space:nowrap">Barge-in 감도</label>
-    <input id="bargeInSlider" type="range" min="100" max="400" value="150" step="50" style="flex:1;accent-color:var(--primary)">
-    <span id="bargeInVal" style="min-width:40px;text-align:right">150ms</span>
+    <input id="bargeInSlider" type="range" min="100" max="400" value="300" step="50" style="flex:1;accent-color:var(--primary)">
+    <span id="bargeInVal" style="min-width:40px;text-align:right">300ms</span>
   </div>
   <div class="input-row">
     <button id="btnMic" class="btn btn-mic" disabled title="음성 녹음">
@@ -418,7 +418,7 @@ const SMOOTHING_FACTOR=0.3;
 // ── Auto Barge-in constants ──
 const BARGEIN_THRESHOLD_BASE=0.01;   // -40dBFS equivalent
 const BARGEIN_THRESHOLD_BOOST=10;     // +10dB during TTS (multiply by ~3.16)
-const BARGEIN_DEBOUNCE_DEFAULT=150;   // ms
+const BARGEIN_DEBOUNCE_DEFAULT=300;   // ms
 const BARGEIN_DEBOUNCE_MIN=100;
 const BARGEIN_DEBOUNCE_MAX=400;
 
@@ -433,12 +433,6 @@ let ttsAudioCtx=null,ttsSource=null;
 let bargeInMonitorCtx=null,bargeInStream=null,bargeInProcessor=null;
 let bargeInDebounceTimer=null;
 let bargeInDebounceMs=BARGEIN_DEBOUNCE_DEFAULT;
-
-// ── Pre-buffer: 마이크 입력을 링 버퍼에 보관하여 barge-in 시 STT로 전달 ──
-const PREBUF_DURATION_MS=500; // 최근 500ms 보관
-const PREBUF_SAMPLE_RATE=16000;
-const PREBUF_MAX_CHUNKS=Math.ceil((PREBUF_DURATION_MS/1000)*PREBUF_SAMPLE_RATE/2048);
-let preBuffer=[];
 let bargeInSmoothedRMS=0;
 let bargeInIndicator=null;
 
@@ -620,11 +614,6 @@ async function startBargeInMonitor(){
     let sum=0;for(let i=0;i<f32.length;i++)sum+=f32[i]*f32[i];
     const rms=Math.sqrt(sum/f32.length);
     bargeInSmoothedRMS=0.3*rms+0.7*bargeInSmoothedRMS;
-    // Pre-buffer: 최근 오디오를 링 버퍼에 저장
-    const i16=new Int16Array(f32.length);
-    for(let i=0;i<f32.length;i++){const s=Math.max(-1,Math.min(1,f32[i]));i16[i]=s<0?s*0x8000:s*0x7FFF}
-    preBuffer.push(new Uint8Array(i16.buffer));
-    if(preBuffer.length>PREBUF_MAX_CHUNKS)preBuffer.shift();
     // Dynamic threshold: base * 10^(boost/20) ≈ base * 3.16 during TTS
     const threshold=BARGEIN_THRESHOLD_BASE*Math.pow(10,BARGEIN_THRESHOLD_BOOST/20);
     const isSpeech=bargeInSmoothedRMS>threshold;
@@ -661,11 +650,9 @@ function triggerAutoBargein(){
   stopTTSPlayback();
   // Send interrupt to server
   if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}));
+  // Visual feedback
+  showBargeInIndicator();
   hideThinking();
-  // 자동으로 녹음 시작 — 사용자가 이미 말하고 있으므로 바로 STT로 전달
-  if(!isRecording){
-    startRecording();
-  }
 }
 
 function showBargeInIndicator(){
@@ -728,17 +715,6 @@ async function startRecording(){
   isRecording=true;
   smoothedRMS=0;speechAccumMs=0;hasSpeech=false;silenceStartTime=0;isAutoStop=false;
   recordingStartTime=performance.now();
-  // Pre-buffer flush: barge-in 전에 쌓인 오디오를 STT로 전달
-  if(preBuffer.length>0&&ws&&ws.readyState===1){
-    preBuffer.forEach(bytes=>{
-      for(let off=0;off<bytes.length;off+=CHUNK_SIZE){
-        const chunk=bytes.slice(off,off+CHUNK_SIZE);
-        if(chunk.length===CHUNK_SIZE)
-          ws.send(JSON.stringify({type:'audio',data:btoa(String.fromCharCode(...chunk))}));
-      }
-    });
-    preBuffer=[];
-  }
   btnMic.classList.add('recording');
   btnRow.classList.add('active');
   showRecording();
@@ -773,17 +749,7 @@ function sendText(text){
   showThinking();
 }
 
-btnMic.onclick=()=>{
-  if(isRecording){stopRecording()}
-  else{
-    // TTS 재생 중이면 즉시 중단
-    if(isPlayingTTS){
-      stopTTSPlayback();
-      if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}));
-    }
-    startRecording();
-  }
-};
+btnMic.onclick=()=>{if(isRecording)stopRecording();else startRecording()};
 btnInterrupt.onclick=()=>{stopTTSPlayback();if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'interrupt'}))};
 btnEndRec.onclick=()=>stopRecording();
 btnSend.onclick=()=>sendText(txtInput.value.trim());
