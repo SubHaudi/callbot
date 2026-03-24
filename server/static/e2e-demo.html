@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Callbot E2E 데모</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#faf8f5;--surface:#fff;--surface-alt:#f2eeea;--border:rgba(45,35,25,0.08);
+  --primary:#c05d2e;--primary-soft:rgba(192,93,46,0.08);--primary-hover:#a84e24;
+  --accent:#2d6a4f;--accent-soft:rgba(45,106,79,0.08);
+  --danger:#b8413a;--danger-soft:rgba(184,65,58,0.08);
+  --success:#2d6a4f;--success-soft:rgba(45,106,79,0.1);
+  --warning:#b8860b;--warning-soft:rgba(184,134,11,0.1);
+  --text:#2d2319;--text-secondary:#7a6e60;--text-tertiary:#9a9088;
+  --radius:20px;--radius-sm:12px;--shadow-sm:0 1px 3px rgba(45,35,25,0.06);
+  --shadow-md:0 4px 24px rgba(45,35,25,0.08);
+}
+body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+h1,h2,h3{font-family:'Outfit','Noto Sans KR',sans-serif;font-weight:600}
+.container{max-width:1100px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;flex-wrap:wrap;gap:12px}
+header h1{font-size:24px;color:var(--primary)}
+header .nav{display:flex;gap:12px}
+header a{color:var(--text-secondary);text-decoration:none;font-size:14px;padding:6px 14px;border-radius:var(--radius-sm);transition:.2s}
+header a:hover{background:var(--surface-alt)}
+
+/* Scenario Cards */
+.scenarios{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:32px}
+.scenario-card{background:var(--surface);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border);cursor:pointer;transition:.2s;position:relative}
+.scenario-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.scenario-card.running{border-color:var(--primary);opacity:.7;pointer-events:none}
+.scenario-card.done{border-color:var(--success)}
+.scenario-card.failed{border-color:var(--danger)}
+.scenario-card .badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:500;margin-bottom:8px}
+.badge-조회{background:var(--accent-soft);color:var(--accent)}
+.badge-변경{background:var(--primary-soft);color:var(--primary)}
+.badge-해지{background:var(--danger-soft);color:var(--danger)}
+.badge-복합{background:var(--warning-soft);color:var(--warning)}
+.scenario-card h3{font-size:16px;margin-bottom:4px}
+.scenario-card p{font-size:13px;color:var(--text-secondary);margin-bottom:8px}
+.scenario-card .meta{font-size:12px;color:var(--text-tertiary)}
+.scenario-card .status-icon{position:absolute;top:16px;right:16px;font-size:20px}
+
+/* Run All */
+.actions{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.btn{padding:10px 24px;border-radius:var(--radius-sm);border:none;font:inherit;font-size:14px;font-weight:500;cursor:pointer;transition:.2s}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-hover)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text-secondary)}
+.btn-outline:hover{background:var(--surface-alt)}
+
+/* Results */
+.result-panel{background:var(--surface);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow-sm);border:1px solid var(--border);margin-bottom:16px;display:none}
+.result-panel.visible{display:block}
+.result-panel h2{font-size:18px;margin-bottom:16px}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+.summary-card{background:var(--surface-alt);border-radius:var(--radius-sm);padding:14px;text-align:center}
+.summary-card .value{font-size:24px;font-weight:700;font-family:'Outfit',sans-serif}
+.summary-card .label{font-size:12px;color:var(--text-secondary);margin-top:2px}
+.summary-card.success .value{color:var(--success)}
+.summary-card.danger .value{color:var(--danger)}
+.summary-card.primary .value{color:var(--primary)}
+
+/* Turn Log */
+.turn-log{border-top:1px solid var(--border);padding-top:16px}
+.turn{padding:12px 0;border-bottom:1px solid var(--border);animation:fadeIn .3s ease}
+.turn:last-child{border-bottom:none}
+.turn-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.turn-num{background:var(--primary-soft);color:var(--primary);font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px}
+.turn-time{font-size:11px;color:var(--text-tertiary);margin-left:auto}
+.turn-intent{font-size:11px;padding:2px 8px;border-radius:10px}
+.intent-match{background:var(--success-soft);color:var(--success)}
+.intent-mismatch{background:var(--danger-soft);color:var(--danger)}
+.turn .user{font-size:14px;color:var(--text);margin-bottom:4px}
+.turn .user::before{content:'👤 ';font-size:13px}
+.turn .bot{font-size:14px;color:var(--text-secondary)}
+.turn .bot::before{content:'🤖 ';font-size:13px}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>🧪 E2E 데모 시나리오</h1>
+    <div class="nav">
+      <a href="/demo">💬 상담</a>
+      <a href="/admin">📊 관리</a>
+    </div>
+  </header>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="runAll" onclick="runAll()">▶ 전체 실행</button>
+    <button class="btn btn-outline" onclick="resetAll()">↻ 초기화</button>
+    <span id="globalStatus" style="line-height:40px;font-size:13px;color:var(--text-secondary)"></span>
+  </div>
+
+  <div class="scenarios" id="scenarioGrid"></div>
+
+  <div class="result-panel" id="resultPanel">
+    <h2 id="resultTitle">실행 결과</h2>
+    <div class="summary-grid" id="summaryGrid"></div>
+    <div class="turn-log" id="turnLog"></div>
+  </div>
+</div>
+
+<script>
+const API = '/api/v1/demo';
+let scenarios = [];
+
+async function init() {
+  try {
+    const res = await fetch(`${API}/scenarios`);
+    scenarios = await res.json();
+    renderGrid();
+  } catch(e) {
+    document.getElementById('scenarioGrid').innerHTML = '<p style="color:var(--danger)">시나리오를 불러올 수 없습니다.</p>';
+  }
+}
+
+function renderGrid() {
+  const grid = document.getElementById('scenarioGrid');
+  grid.innerHTML = scenarios.map(s => `
+    <div class="scenario-card" id="card-${s.id}" onclick="runScenario('${s.id}')">
+      <span class="badge badge-${s.category}">${s.category}</span>
+      <span class="status-icon" id="icon-${s.id}"></span>
+      <h3>${s.name}</h3>
+      <p>${s.description}</p>
+      <div class="meta">${s.turn_count}턴 시나리오</div>
+    </div>
+  `).join('');
+}
+
+async function runScenario(id) {
+  const card = document.getElementById(`card-${id}`);
+  const icon = document.getElementById(`icon-${id}`);
+  card.className = 'scenario-card running';
+  icon.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const res = await fetch(`${API}/scenarios/${id}/run`, {method:'POST'});
+    const data = await res.json();
+    card.className = `scenario-card ${data.success ? 'done' : 'failed'}`;
+    icon.textContent = data.success ? '✅' : '❌';
+    showResult(data);
+  } catch(e) {
+    card.className = 'scenario-card failed';
+    icon.textContent = '❌';
+  }
+}
+
+async function runAll() {
+  const btn = document.getElementById('runAll');
+  const status = document.getElementById('globalStatus');
+  btn.disabled = true;
+  status.textContent = '실행 중...';
+
+  for (const s of scenarios) {
+    status.textContent = `실행 중: ${s.name}...`;
+    await runScenario(s.id);
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  btn.disabled = false;
+  const passed = document.querySelectorAll('.scenario-card.done').length;
+  const total = scenarios.length;
+  status.textContent = `완료: ${passed}/${total} 성공`;
+}
+
+function resetAll() {
+  document.getElementById('resultPanel').classList.remove('visible');
+  document.getElementById('globalStatus').textContent = '';
+  renderGrid();
+}
+
+function showResult(data) {
+  const panel = document.getElementById('resultPanel');
+  panel.classList.add('visible');
+  document.getElementById('resultTitle').textContent = `${data.scenario_name} 결과`;
+
+  document.getElementById('summaryGrid').innerHTML = `
+    <div class="summary-card ${data.success?'success':'danger'}">
+      <div class="value">${data.success?'성공':'실패'}</div>
+      <div class="label">결과</div>
+    </div>
+    <div class="summary-card primary">
+      <div class="value">${data.turns.length}</div>
+      <div class="label">총 턴 수</div>
+    </div>
+    <div class="summary-card primary">
+      <div class="value">${data.avg_response_time_ms.toFixed(0)}ms</div>
+      <div class="label">평균 응답시간</div>
+    </div>
+    <div class="summary-card ${data.intent_accuracy>=80?'success':'danger'}">
+      <div class="value">${data.intent_accuracy.toFixed(0)}%</div>
+      <div class="label">인텐트 정확도</div>
+    </div>
+    <div class="summary-card">
+      <div class="value">${data.total_time_ms.toFixed(0)}ms</div>
+      <div class="label">총 소요시간</div>
+    </div>
+  `;
+
+  document.getElementById('turnLog').innerHTML = data.turns.map(t => `
+    <div class="turn">
+      <div class="turn-header">
+        <span class="turn-num">Turn ${t.turn_number}</span>
+        <span class="turn-intent ${t.intent_match?'intent-match':'intent-mismatch'}">
+          ${t.actual_intent||'—'} ${t.intent_match?'✓':'✗'}
+        </span>
+        <span class="turn-time">${t.response_time_ms.toFixed(0)}ms</span>
+      </div>
+      <div class="user">${t.user_text}</div>
+      <div class="bot">${t.bot_response}</div>
+    </div>
+  `).join('');
+
+  panel.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+init();
+</script>
+</body>
+</html>

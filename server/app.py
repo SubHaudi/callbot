@@ -13,6 +13,7 @@ from callbot.health.router import configure_health_dependencies, router as healt
 from server.config import ServerConfig
 from server.routes import router as api_router
 from server.admin_routes import router as admin_router
+from server.demo_routes import router as demo_router
 from callbot.session.exceptions import SessionNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,7 @@ def create_app() -> FastAPI:
 
     # Admin API router
     app.include_router(admin_router)
+    app.include_router(demo_router)
 
     # Demo static files
     import pathlib
@@ -260,6 +262,14 @@ def create_app() -> FastAPI:
         if admin_html.exists():
             return admin_html.read_text(encoding="utf-8")
         return HTMLResponse("<h1>Admin not found</h1>", status_code=404)
+
+    e2e_demo_html = pathlib.Path(__file__).parent / "static" / "e2e-demo.html"
+
+    @app.get("/e2e-demo", response_class=HTMLResponse)
+    async def e2e_demo_page():
+        if e2e_demo_html.exists():
+            return e2e_demo_html.read_text(encoding="utf-8")
+        return HTMLResponse("<h1>E2E Demo not found</h1>", status_code=404)
 
     # Error handlers
     @app.exception_handler(SessionNotFoundError)
